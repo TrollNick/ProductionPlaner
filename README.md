@@ -50,6 +50,17 @@ Folgende Werte im Unraid-Docker-Dialog verwenden:
 
 Falls GHCR das Package zunächst als privat anlegt, muss es in GitHub unter **Packages → Package settings → Change visibility** öffentlich gemacht werden. Alternativ kann Unraid mit einem GitHub Personal Access Token für `read:packages` angemeldet werden.
 
+### Container beendet sich mit `SQLITE_CANTOPEN`
+
+Zuerst das aktuelle Image laden und den Container neu erstellen:
+
+```bash
+docker pull ghcr.io/trollnick/productionplaner:latest
+docker compose up -d --force-recreate
+```
+
+Falls der Fehler weiterhin erscheint, prüfen, ob `/mnt/user/appdata/production-planer` als Verzeichnis existiert und `/data` tatsächlich dorthin gemountet ist.
+
 ## Backup
 
 Alle Nutzdaten liegen im gemounteten `/data`-Verzeichnis. Für ein konsistentes manuelles Backup den Container kurz stoppen, das Verzeichnis sichern und den Container wieder starten:
