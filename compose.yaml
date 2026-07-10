@@ -1,0 +1,13 @@
+services:
+  production-planer:
+    image: ghcr.io/trollnick/productionplaner:latest
+    container_name: production-planer
+    restart: unless-stopped
+    ports:
+      - "3080:3001"
+    environment:
+      DATA_DIR: /data
+      SEED_DEMO: "false"
+      TZ: Europe/Berlin
+    volumes:
+      - /mnt/user/appdata/production-planer:/data

@@ -1,0 +1,90 @@
+# TAKT – Produktionsplaner
+
+Ein bewusst einfacher, gemeinsamer Produktionsplan für kleine Teams. TAKT zeigt laufende Aufträge, erwartete Lieferungen, geplante Arbeiten, Abhängigkeiten und einen daraus abgeleiteten möglichen Fertigstellungstermin.
+
+Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
+
+## Funktionen
+
+- gemeinsame Auftragsübersicht mit Ampelstatus
+- Lieferungen und grob geplante Arbeiten auf einer Zeitachse
+- manuell änderbare Termine, Zuständigkeiten und Notizen
+- einfache Abhängigkeiten zwischen Lieferungen und Arbeiten
+- Vorschau auf Terminverschiebungen und mögliche Fertigstellung
+- bestehende Aufträge als Ausgangspunkt kopieren
+- für PC, Tablet und Smartphone optimiert
+- SQLite-Datenbank ohne separaten Datenbankserver
+
+## Auf Unraid starten
+
+Das fertige Image wird nach jedem Push auf `main` von GitHub Actions gebaut und unter `ghcr.io/trollnick/productionplaner:latest` veröffentlicht.
+
+### Mit Docker Compose
+
+Die enthaltene `compose.yaml` ist bereits für Unraid vorbereitet:
+
+```bash
+docker compose up -d
+```
+
+Danach ist die App unter `http://UNRAID-IP:3080` erreichbar. Die Daten liegen dauerhaft unter:
+
+```text
+/mnt/user/appdata/production-planer
+```
+
+### Als Unraid-Docker-Template
+
+Folgende Werte im Unraid-Docker-Dialog verwenden:
+
+| Feld | Wert |
+|---|---|
+| Repository | `ghcr.io/trollnick/productionplaner:latest` |
+| WebUI | `http://[IP]:[PORT:3001]` |
+| Container Port | `3001` |
+| Host Port | `3080` oder ein freier Port |
+| Container Path | `/data` |
+| Host Path | `/mnt/user/appdata/production-planer` |
+| Variable `SEED_DEMO` | `false` |
+| Variable `TZ` | `Europe/Berlin` |
+
+Falls GHCR das Package zunächst als privat anlegt, muss es in GitHub unter **Packages → Package settings → Change visibility** öffentlich gemacht werden. Alternativ kann Unraid mit einem GitHub Personal Access Token für `read:packages` angemeldet werden.
+
+## Backup
+
+Alle Nutzdaten liegen im gemounteten `/data`-Verzeichnis. Für ein konsistentes manuelles Backup den Container kurz stoppen, das Verzeichnis sichern und den Container wieder starten:
+
+```bash
+docker stop production-planer
+# /mnt/user/appdata/production-planer mit dem gewünschten Unraid-Backup sichern
+docker start production-planer
+```
+
+## Lokal entwickeln
+
+Voraussetzung: Node.js 22 oder neuer.
+
+```bash
+npm install
+npm run dev
+```
+
+Frontend: `http://localhost:5173`  
+API: `http://localhost:3001`
+
+Beim ersten lokalen Start werden zwei Beispielaufträge angelegt. Mit `SEED_DEMO=false` startet die App leer.
+
+## Produktions-Build testen
+
+```bash
+npm run typecheck
+npm run build
+npm start
+```
+
+Oder vollständig als Container:
+
+```bash
+docker build -t production-planer .
+docker run --rm -p 3080:3001 -v production-planer-data:/data production-planer
+```
