@@ -272,7 +272,7 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
   const workdays = useMemo(() => planningDays(project), [project]);
   const index = useMemo(() => new Map(workdays.map((date, position) => [date, position])), [workdays]);
   const drag = useRef<{ itemId: number; x: number } | null>(null);
-  const [hoverInfo, setHoverInfo] = useState<{ item: PlanItem; forecast: Project['forecast']['itemForecasts'][number]; dependencies: string[]; x: number; y: number; placement: 'top' | 'bottom' } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ item: PlanItem; forecast: Project['forecast']['itemForecasts'][number]; dependencies: string[]; x: number; y: number; placement: 'top' | 'bottom' | 'viewport' } | null>(null);
   const gridWidth = workdays.length * DAY_WIDTH;
   const fullWidth = INFO_WIDTH + gridWidth + STATUS_WIDTH;
   const positionOf = (date: string) => index.get(isBusinessDay(date) ? date : nextBusinessDay(date, true)) ?? 0;
@@ -328,7 +328,7 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
             {hasBaselineChange ? <i className={`delivery-deviation-line ${actualStart > baselineEnd ? 'delay' : 'early'}`} title={deviationTitle} style={{ left: Math.min(actualStart, baselineEnd) * DAY_WIDTH + DAY_WIDTH / 2, width: Math.abs(actualStart - baselineEnd) * DAY_WIDTH }} /> : null}
           </> : null}
           {(forecast.shifted || hasBaselineChange) && item.type === 'work' ? <i className="planned-ghost" title={`Basisplan ${formatDate(item.baseline_start_date)}–${formatDate(item.baseline_end_date)}`} style={{ left: baselineStart * DAY_WIDTH + 4, width: Math.max(DAY_WIDTH - 8, (baselineEnd - baselineStart + 1) * DAY_WIDTH - 8) }} /> : null}
-          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onMouseEnter={(event) => { const rect = event.currentTarget.getBoundingClientRect(); const placement = rect.top < 230 ? 'bottom' : 'top'; setHoverInfo({ item, forecast, dependencies, x: Math.max(190, Math.min(window.innerWidth - 190, rect.left + rect.width / 2)), y: placement === 'bottom' ? rect.bottom : rect.top, placement }); }} onMouseLeave={() => setHoverInfo(null)} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} aria-label={`${item.title}: ${deviationTitle || `${formatDate(forecast.start)} bis ${formatDate(forecast.end)}`}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
+          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onMouseEnter={(event) => { const rect = event.currentTarget.getBoundingClientRect(); const cardWidth = Math.min(360, window.innerWidth - 24); const cardHeight = 240; const placement = rect.top >= cardHeight + 12 ? 'top' : window.innerHeight - rect.bottom >= cardHeight + 12 ? 'bottom' : 'viewport'; const halfWidth = cardWidth / 2; setHoverInfo({ item, forecast, dependencies, x: Math.max(halfWidth + 12, Math.min(window.innerWidth - halfWidth - 12, rect.left + rect.width / 2)), y: placement === 'bottom' ? rect.bottom : placement === 'top' ? rect.top : 12, placement }); }} onMouseLeave={() => setHoverInfo(null)} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} aria-label={`${item.title}: ${deviationTitle || `${formatDate(forecast.start)} bis ${formatDate(forecast.end)}`}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
             {editMode ? <GripVertical /> : <ItemIcon type={item.type} iconKey={item.icon_key} />}<span>{item.type === 'delivery' ? formatDate(forecast.end) : `${formatDate(forecast.start)} – ${formatDate(forecast.base_end)}`}</span>
           </div>
           {extensionWidth ? <button className="extension-bar" onClick={() => onEdit(item)} title={`${item.extension_days} zusätzliche Arbeitstage: ${item.extension_reason || 'ohne Begründung'}`} style={{ left: (baseEnd + 1) * DAY_WIDTH, width: extensionWidth }}><Pause /><span>+{item.extension_days} AT</span></button> : null}
@@ -340,9 +340,68 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
   </div></div>{hoverInfo ? createPortal(<div role="tooltip" className={`floating-info-card ${hoverInfo.placement} ${hoverInfo.item.change_type}`} style={{ left: hoverInfo.x, top: hoverInfo.y }}><div className="floating-card-head"><span className={hoverInfo.item.type}><ItemIcon type={hoverInfo.item.type} iconKey={hoverInfo.item.icon_key} /></span><div><small>{hoverInfo.item.type === 'delivery' ? 'Lieferung' : 'Arbeit'} · {statusLabels[hoverInfo.item.status]}</small><strong>{hoverInfo.item.title}</strong></div></div><div className="floating-meta"><span>{hoverInfo.item.type === 'delivery' ? 'Lieferant' : 'Verantwortlich'}<b>{hoverInfo.item.partner || 'Nicht eingetragen'}</b></span><span>Aktuell<b>{formatDate(hoverInfo.forecast.start)} – {formatDate(hoverInfo.forecast.end)}</b></span></div>{hoverInfo.item.change_type !== 'none' ? <div className="floating-deviation"><CircleAlert /><div><small>{changeLabels[hoverInfo.item.change_type]}</small><strong>{hoverInfo.item.change_reason || 'Grund noch nicht eingetragen'}</strong></div></div> : null}<div className="floating-plan"><span>Basisplan <b>{formatDate(hoverInfo.item.baseline_start_date)} – {formatDate(hoverInfo.item.baseline_end_date)}</b></span>{hoverInfo.dependencies.length ? <span><Link2 /> Nach: <b>{hoverInfo.dependencies.join(', ')}</b></span> : null}{hoverInfo.item.notes ? <p>{hoverInfo.item.notes}</p> : null}</div></div>, document.body) : null}</>;
 }
 
+type CalendarWeekEvent = {
+  item: PlanItem;
+  startColumn: number;
+  endColumn: number;
+  lane: number;
+  startsHere: boolean;
+  endsHere: boolean;
+  continuesLeft: boolean;
+  continuesRight: boolean;
+  extensionStart: number | null;
+};
+
+function buildCalendarWeekEvents(project: Project, week: string[]) {
+  const firstDay = week[0];
+  const lastDay = week.at(-1) || firstDay;
+  const itemOrder = new Map(project.items.map((item, index) => [item.id, index]));
+  const raw = project.items.flatMap((item) => {
+    const forecast = project.forecast.itemForecasts[item.id];
+    if (!forecast) return [];
+    if (item.type === 'delivery') {
+      const arrivalDay = isBusinessDay(forecast.end) ? forecast.end : nextBusinessDay(forecast.end, true);
+      const column = week.indexOf(arrivalDay);
+      if (column < 0) return [];
+      return [{ item, startColumn: column, endColumn: column, startsHere: true, endsHere: true, continuesLeft: false, continuesRight: false, extensionStart: null }];
+    }
+    if (forecast.end < firstDay || forecast.start > lastDay) return [];
+    const segmentStart = forecast.start < firstDay ? firstDay : forecast.start;
+    const segmentEnd = forecast.end > lastDay ? lastDay : forecast.end;
+    const startColumn = Math.max(0, week.indexOf(segmentStart));
+    const endColumn = Math.max(startColumn, week.indexOf(segmentEnd));
+    const firstExtensionDay = forecast.end > forecast.base_end ? addBusinessDays(forecast.base_end, 1) : '';
+    const extensionDayColumn = firstExtensionDay ? week.indexOf(firstExtensionDay) : -1;
+    const extensionColumn = firstExtensionDay && firstExtensionDay <= segmentEnd
+      ? Math.max(startColumn, extensionDayColumn < 0 ? startColumn : extensionDayColumn)
+      : null;
+    const segmentLength = endColumn - startColumn + 1;
+    return [{
+      item,
+      startColumn,
+      endColumn,
+      startsHere: forecast.start >= firstDay,
+      endsHere: forecast.end <= lastDay,
+      continuesLeft: forecast.start < firstDay,
+      continuesRight: forecast.end > lastDay,
+      extensionStart: extensionColumn === null ? null : (extensionColumn - startColumn) / segmentLength * 100,
+    }];
+  }).sort((a, b) => a.startColumn - b.startColumn || b.endColumn - a.endColumn || (itemOrder.get(a.item.id) || 0) - (itemOrder.get(b.item.id) || 0));
+
+  const laneEnds: number[] = [];
+  const events: CalendarWeekEvent[] = raw.map((event) => {
+    let lane = laneEnds.findIndex((endColumn) => endColumn < event.startColumn);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = event.endColumn;
+    return { ...event, lane };
+  });
+  return { events, laneCount: Math.max(1, laneEnds.length) };
+}
+
 function WorkCalendar({ project, onEdit }: { project: Project; onEdit: (item: PlanItem) => void }) {
   const workdays = useMemo(() => planningDays(project), [project]);
   const weeks = useMemo(() => { const result: string[][] = []; for (let i = 0; i < workdays.length; i += 5) result.push(workdays.slice(i, i + 5)); return result; }, [workdays]);
+  const weekLayouts = useMemo(() => weeks.map((week) => ({ week, ...buildCalendarWeekEvents(project, week) })), [project, weeks]);
   const dependencyChains = useMemo(() => project.items.flatMap((item) => item.dependency_ids.flatMap((dependencyId) => { const dependency = project.items.find((candidate) => candidate.id === dependencyId); return dependency ? [{ dependency, item }] : []; })), [project]);
   const calendarBodyRef = useRef<HTMLDivElement>(null);
   const [calendarConnections, setCalendarConnections] = useState<{ id: string; path: string; conflict: boolean }[]>([]);
@@ -375,23 +434,34 @@ function WorkCalendar({ project, onEdit }: { project: Project; onEdit: (item: Pl
   return <div className="work-calendar">
     {dependencyChains.length ? <div className="calendar-dependency-map"><header><Link2 /><div><strong>Abhängigkeiten</strong><small>Die gleiche Logik wie im Zeitstrahl</small></div></header><div>{dependencyChains.map(({ dependency, item }) => <button onClick={() => onEdit(item)} key={`${dependency.id}-${item.id}`}><span>{dependency.title}</span><ArrowRight /><strong>{item.title}</strong></button>)}</div></div> : null}
     <div className="calendar-weekdays">{['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map((day) => <span key={day}>{day}</span>)}</div>
-    <div className="calendar-weeks-body" ref={calendarBodyRef}><svg className="calendar-dependency-overlay" aria-hidden="true"><defs><marker id="calendar-dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5 z" /></marker></defs>{calendarConnections.map((connection) => <path key={connection.id} d={connection.path} className={connection.conflict ? 'conflict' : ''} markerEnd="url(#calendar-dependency-arrow)" />)}</svg>{weeks.map((week) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-days">{week.map((date) => {
-      const entries = project.items.filter((item) => { const forecast = project.forecast.itemForecasts[item.id]; return forecast.start <= date && forecast.end >= date; });
-      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => <CalendarItemEntry item={item} date={date} project={project} onEdit={onEdit} key={item.id} />)}</div></div>;
-    })}</div></section>)}</div>
+    <div className="calendar-weeks-body" ref={calendarBodyRef}><svg className="calendar-dependency-overlay" aria-hidden="true"><defs><marker id="calendar-dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5 z" /></marker></defs>{calendarConnections.map((connection) => <path key={connection.id} d={connection.path} className={connection.conflict ? 'conflict' : ''} markerEnd="url(#calendar-dependency-arrow)" />)}</svg>{weekLayouts.map(({ week, events, laneCount }) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-week-board" style={{ height: 40 + laneCount * 41 }}><div className="calendar-days">{week.map((date) => <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header></div>)}</div><div className="calendar-week-events">{events.map((event) => <CalendarEventBar event={event} project={project} onEdit={onEdit} key={`${event.item.id}-${week[0]}`} />)}</div></div></section>)}</div>
   </div>;
 }
 
-function CalendarItemEntry({ item, date, project, onEdit }: { item: PlanItem; date: string; project: Project; onEdit: (item: PlanItem) => void }) {
+function CalendarEventBar({ event, project, onEdit }: { event: CalendarWeekEvent; project: Project; onEdit: (item: PlanItem) => void }) {
+  const { item } = event;
   const forecast = project.forecast.itemForecasts[item.id];
-  const extension = item.type === 'work' && date > forecast.base_end;
   const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : '';
   const dependencies = item.dependency_ids.map((id) => project.items.find((candidate) => candidate.id === id)?.title).filter(Boolean);
-  const deliveryPhase = item.type === 'delivery' ? date === forecast.end ? 'arrival' : date === forecast.start ? 'ordered' : 'transit' : '';
   const secondary = item.type === 'delivery'
-    ? deliveryPhase === 'arrival' ? `Lieferung erwartet · ${item.partner || 'Lieferant offen'}` : deliveryPhase === 'ordered' ? `Bestellt · erwartet ${formatDate(forecast.end)}` : `Bestellt · erwartet ${formatDate(forecast.end)}`
-    : extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status];
-  return <button data-calendar-start={date === forecast.start ? item.id : undefined} data-calendar-end={date === forecast.end ? item.id : undefined} title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${deliveryPhase} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type} ${dependencies.length ? 'has-dependency' : ''}`}><ItemIcon type={item.type} iconKey={item.icon_key} /><span><strong>{item.title}</strong><small>{secondary}</small>{dependencies.length && date === forecast.start ? <small className="calendar-dependency"><Link2 /> Nach: {dependencies.join(', ')}</small> : null}</span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' && deliveryPhase !== 'transit' ? <AlertTriangle /> : null}</button>;
+    ? `${formatDate(forecast.end)} · ${item.partner || 'Lieferant offen'}`
+    : `${formatDate(forecast.start)} – ${formatDate(forecast.end)}${item.partner ? ` · ${item.partner}` : ''}`;
+  const tooltip = [item.title, item.type === 'delivery' ? `Lieferung erwartet am ${formatDate(forecast.end, true)}` : `Arbeit ${formatDate(forecast.start, true)} bis ${formatDate(forecast.end, true)}`, dependencies.length ? `Nach: ${dependencies.join(', ')}` : '', deviationTitle].filter(Boolean).join(' · ');
+  return <button
+    data-calendar-start={event.startsHere ? item.id : undefined}
+    data-calendar-end={event.endsHere ? item.id : undefined}
+    title={tooltip}
+    aria-label={tooltip}
+    onClick={() => onEdit(item)}
+    className={`calendar-event ${item.type} ${event.continuesLeft ? 'continues-left' : ''} ${event.continuesRight ? 'continues-right' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type} ${dependencies.length ? 'has-dependency' : ''}`}
+    style={{ gridColumn: `${event.startColumn + 1} / ${event.endColumn + 2}`, gridRow: event.lane + 1 }}
+  >
+    {event.extensionStart !== null ? <i className="calendar-extension-tail" style={{ left: `${event.extensionStart}%` }} /> : null}
+    <ItemIcon type={item.type} iconKey={item.icon_key} />
+    <span><strong>{item.title}</strong><small>{secondary}</small></span>
+    {dependencies.length && event.startsHere ? <Link2 className="calendar-event-dependency" /> : null}
+    {forecast.conflict ? <CircleAlert className="calendar-event-alert" /> : item.change_type !== 'none' ? <AlertTriangle className="calendar-event-alert" /> : null}
+  </button>;
 }
 
 function ItemIcon({ type, iconKey, size = 17 }: { type: ItemType; iconKey?: string; size?: number }) { return <TaskIcon type={type} iconKey={iconKey} size={size} />; }
@@ -489,7 +559,7 @@ function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: 
     <form onSubmit={save} className="form-grid">
       <div className="type-switch wide"><button type="button" className={draft.type === 'delivery' ? 'active' : ''} onClick={() => setDraft({ ...draft, type: 'delivery', icon_key: 'delivery-box' })}><Truck /> Lieferung</button><button type="button" className={draft.type === 'work' ? 'active' : ''} onClick={() => setDraft({ ...draft, type: 'work', icon_key: 'assembly' })}><Wrench /> Arbeit</button></div>
       <label className="wide"><span>Bezeichnung *</span><input autoFocus required value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder={draft.type === 'delivery' ? 'z. B. Frästeile Achse' : 'z. B. Achse montieren'} /></label>
-      <fieldset className="wide task-icon-picker"><legend>Symbol</legend>{TASK_ICON_OPTIONS.filter((option) => option.type === draft.type).map((option) => <button type="button" className={draft.icon_key === option.key ? 'selected' : ''} onClick={() => setDraft({ ...draft, icon_key: option.key })} key={option.key}><TaskIcon type={option.type} iconKey={option.key} size={20} /><span>{option.label}</span>{draft.icon_key === option.key ? <Check /> : null}</button>)}</fieldset>
+      <fieldset className="wide task-icon-picker"><legend>Symbol</legend>{TASK_ICON_OPTIONS.filter((option) => option.type === draft.type).map((option) => <button type="button" aria-label={option.label} title={option.label} className={draft.icon_key === option.key ? 'selected' : ''} onClick={() => setDraft({ ...draft, icon_key: option.key })} key={option.key}><TaskIcon type={option.type} iconKey={option.key} size={22} /></button>)}</fieldset>
       <label><span>{draft.type === 'delivery' ? 'Lieferant' : 'Verantwortlich'}</span><input value={draft.partner} onChange={(e) => setDraft({ ...draft, partner: e.target.value })} placeholder={draft.type === 'delivery' ? 'Firma / Ansprechpartner' : 'Name oder Team'} /></label>
       <label><span>Status</span><select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as Status })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label><span>{draft.type === 'delivery' ? 'Bestellt / gestartet' : 'Geplanter Start'}</span><input required type="date" value={draft.start_date} onChange={(e) => setDraft({ ...draft, start_date: e.target.value })} /></label>
