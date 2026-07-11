@@ -45,7 +45,7 @@ type ItemDraft = Omit<PlanItem, 'id' | 'project_id' | 'sort_order'>;
 const emptyItem = (date = today): ItemDraft => {
   const start = nextBusinessDay(date, true);
   const end = addBusinessDays(start, 4);
-  return { type: 'work', title: '', partner: '', start_date: start, end_date: end, status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', baseline_start_date: start, baseline_end_date: end, actual_end_date: '', pull_forward: 0, change_type: 'none', change_reason: '', notes: '', dependency_ids: [] };
+  return { type: 'work', title: '', partner: '', start_date: start, end_date: end, status: 'open', previous_status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', baseline_start_date: start, baseline_end_date: end, actual_end_date: '', pull_forward: 0, change_type: 'none', change_reason: '', notes: '', dependency_ids: [] };
 };
 
 export function App() {
@@ -166,7 +166,7 @@ function ProjectDetail({ project, onBack, onChange }: { project: Project; onBack
     setSaving(true);
     const done = item.status !== 'done';
     const actualDate = item.type === 'work' && !isBusinessDay(today) ? addBusinessDays(today, -1) : today;
-    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: done ? 'done' : 'open', actual_end_date: done ? actualDate : '' }) });
+    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: done ? 'done' : item.previous_status || 'open', previous_status: done ? item.status : item.previous_status, actual_end_date: done ? actualDate : '' }) });
     await onChange();
     setSaving(false);
   };
@@ -276,10 +276,11 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
       const extensionWidth = Math.max(0, (actualEnd - baseEnd) * DAY_WIDTH);
       const hasBaselineChange = item.baseline_start_date !== item.start_date || item.baseline_end_date !== item.end_date;
       const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : '';
+      const tooltipLeft = Math.max(6, Math.min(actualStart * DAY_WIDTH, gridWidth - 292));
       const dragStart = (event: React.DragEvent) => { drag.current = { itemId: item.id, x: event.clientX }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(item.id)); };
       const dragEnd = (event: React.DragEvent) => { if (!drag.current || drag.current.itemId !== item.id) return; const delta = Math.round((event.clientX - drag.current.x) / DAY_WIDTH); drag.current = null; if (delta) void onMove(item, delta); };
       return <div className={`timeline-row dense-row ${item.status === 'done' ? 'is-done' : ''} ${forecast.conflict ? 'has-conflict' : ''}`} style={{ gridTemplateColumns: `${INFO_WIDTH}px ${gridWidth}px ${STATUS_WIDTH}px` }} key={item.id}>
-        <button className="task-info dense-info" onClick={() => onEdit(item)}><span className={item.type}><ItemIcon type={item.type} /></span><p><strong>{item.title}</strong><small>{dependencies.length ? `Nach: ${dependencies.join(', ')}` : item.partner || (item.type === 'delivery' ? 'Lieferant offen' : 'Frei einplanbar')}</small>{forecast.conflict ? <em><CircleAlert /> Erst ab {formatDate(forecast.required_start)} möglich</em> : forecast.pulled_forward ? <em className="pulled"><ArrowLeft /> Nachgezogen auf {formatDate(forecast.start)}</em> : forecast.shifted && item.schedule_mode === 'auto' ? <em className="auto"><Link2 /> Automatisch ab {formatDate(forecast.start)}</em> : null}</p>{item.change_type !== 'none' ? <i className={`deviation-badge ${item.change_type}`} title={deviationTitle}><AlertTriangle /></i> : null}</button>
+        <button className="task-info dense-info" onClick={() => onEdit(item)}><span className={item.type}><ItemIcon type={item.type} /></span><p><strong>{item.title}</strong><small>{dependencies.length ? `Nach: ${dependencies.join(', ')}` : item.partner || (item.type === 'delivery' ? 'Lieferant offen' : 'Frei einplanbar')}</small>{forecast.conflict ? <em><CircleAlert /> Erst ab {formatDate(forecast.required_start)} möglich</em> : forecast.pulled_forward ? <em className="pulled"><ArrowLeft /> Nachgezogen auf {formatDate(forecast.start)}</em> : forecast.shifted && item.schedule_mode === 'auto' ? <em className="auto"><Link2 /> Automatisch ab {formatDate(forecast.start)}</em> : null}</p>{item.change_type !== 'none' ? <i className={`deviation-badge ${item.change_type}`} title={deviationTitle}><CircleAlert /></i> : null}</button>
         <div className="track dense-track" style={{ backgroundSize: `${DAY_WIDTH}px 100%` }}>
           {item.type === 'delivery' ? <>
             <i className="delivery-lead-line" title={`Bestellt am ${formatDate(item.start_date, true)} · erwartet am ${formatDate(forecast.end, true)}`} style={{ left: plannedStart * DAY_WIDTH + DAY_WIDTH / 2, width: Math.max(2, (actualStart - plannedStart) * DAY_WIDTH) }} />
@@ -288,12 +289,13 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
             {hasBaselineChange ? <i className={`delivery-deviation-line ${actualStart > baselineEnd ? 'delay' : 'early'}`} title={deviationTitle} style={{ left: Math.min(actualStart, baselineEnd) * DAY_WIDTH + DAY_WIDTH / 2, width: Math.abs(actualStart - baselineEnd) * DAY_WIDTH }} /> : null}
           </> : null}
           {(forecast.shifted || hasBaselineChange) && item.type === 'work' ? <i className="planned-ghost" title={`Basisplan ${formatDate(item.baseline_start_date)}–${formatDate(item.baseline_end_date)}`} style={{ left: baselineStart * DAY_WIDTH + 4, width: Math.max(DAY_WIDTH - 8, (baselineEnd - baselineStart + 1) * DAY_WIDTH - 8) }} /> : null}
-          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} title={`${formatDate(item.type === 'delivery' ? forecast.end : forecast.start, true)}${item.type === 'work' ? ` bis ${formatDate(forecast.end, true)}` : ''}${deviationTitle ? ` · ${deviationTitle}` : ''}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
+          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} aria-label={`${item.title}: ${deviationTitle || `${formatDate(forecast.start)} bis ${formatDate(forecast.end)}`}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
             {editMode ? <GripVertical /> : <ItemIcon type={item.type} />}<span>{item.type === 'delivery' ? formatDate(forecast.end) : `${formatDate(forecast.start)} – ${formatDate(forecast.base_end)}`}</span>
           </div>
+          {deviationTitle ? <div className={`bar-hover-card ${item.change_type}`} style={{ left: tooltipLeft }}><header><CircleAlert /><span>{changeLabels[item.change_type]}</span></header><strong>{item.change_reason || 'Grund noch nicht eingetragen'}</strong><div className="hover-date-change"><span>Plan <b>{formatDate(item.baseline_end_date, true)}</b></span><ArrowRight /><span>Aktuell <b>{formatDate(item.actual_end_date || forecast.end, true)}</b></span></div></div> : null}
           {extensionWidth ? <button className="extension-bar" onClick={() => onEdit(item)} title={`${item.extension_days} zusätzliche Arbeitstage: ${item.extension_reason || 'ohne Begründung'}`} style={{ left: (baseEnd + 1) * DAY_WIDTH, width: extensionWidth }}><Pause /><span>+{item.extension_days} AT</span></button> : null}
         </div>
-        <div className="row-status">{forecast.conflict ? <span className="conflict-state"><CircleAlert /> Blockiert</span> : null}<button disabled={saving} className={`status-button ${item.status}`} onClick={() => void onToggleDone(item)}>{item.status === 'done' ? <Check /> : item.status === 'active' ? <Clock3 /> : <CircleDot />}<span>{statusLabels[item.status]}</span></button></div>
+        <div className="row-status">{forecast.conflict ? <span className="conflict-state"><CircleAlert /> Blockiert</span> : null}<button title={item.status === 'done' ? `Zurück zu ${statusLabels[item.previous_status]}` : 'Als erledigt markieren'} disabled={saving} className={`status-button ${item.status}`} onClick={() => void onToggleDone(item)}>{item.status === 'done' ? <Check /> : item.status === 'active' ? <Clock3 /> : <CircleDot />}<span>{statusLabels[item.status]}</span></button></div>
       </div>;
     })}
     {project.items.length === 0 ? <div className="empty-timeline">Noch keine Lieferungen oder Arbeiten. Füge den ersten Eintrag hinzu.</div> : null}
@@ -303,11 +305,13 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
 function WorkCalendar({ project, onEdit }: { project: Project; onEdit: (item: PlanItem) => void }) {
   const workdays = useMemo(() => planningDays(project), [project]);
   const weeks = useMemo(() => { const result: string[][] = []; for (let i = 0; i < workdays.length; i += 5) result.push(workdays.slice(i, i + 5)); return result; }, [workdays]);
+  const dependencyChains = useMemo(() => project.items.flatMap((item) => item.dependency_ids.flatMap((dependencyId) => { const dependency = project.items.find((candidate) => candidate.id === dependencyId); return dependency ? [{ dependency, item }] : []; })), [project]);
   return <div className="work-calendar">
+    {dependencyChains.length ? <div className="calendar-dependency-map"><header><Link2 /><div><strong>Abhängigkeiten</strong><small>Die gleiche Logik wie im Zeitstrahl</small></div></header><div>{dependencyChains.map(({ dependency, item }) => <button onClick={() => onEdit(item)} key={`${dependency.id}-${item.id}`}><span>{dependency.title}</span><ArrowRight /><strong>{item.title}</strong></button>)}</div></div> : null}
     <div className="calendar-weekdays">{['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map((day) => <span key={day}>{day}</span>)}</div>
     {weeks.map((week) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-days">{week.map((date) => {
       const entries = project.items.filter((item) => { const forecast = project.forecast.itemForecasts[item.id]; return item.type === 'delivery' ? forecast.end === date : forecast.start <= date && forecast.end >= date; });
-      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : ''; return <button title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status]}</small></span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' ? <AlertTriangle /> : null}</button>; })}</div></div>;
+      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : ''; const dependencies = item.dependency_ids.map((id) => project.items.find((candidate) => candidate.id === id)?.title).filter(Boolean); return <button title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type} ${dependencies.length ? 'has-dependency' : ''}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status]}</small>{dependencies.length && date === forecast.start ? <small className="calendar-dependency"><Link2 /> Nach: {dependencies.join(', ')}</small> : null}</span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' ? <AlertTriangle /> : null}</button>; })}</div></div>;
     })}</div></section>)}
   </div>;
 }
@@ -362,7 +366,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
 }
 
 function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: Project; item?: PlanItem; defaultType?: ItemType; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, start_date: item.start_date, end_date: item.end_date, status: item.status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, baseline_start_date: item.baseline_start_date, baseline_end_date: item.baseline_end_date, actual_end_date: item.actual_end_date, pull_forward: item.pull_forward, change_type: item.change_type, change_reason: item.change_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work' });
+  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, start_date: item.start_date, end_date: item.end_date, status: item.status, previous_status: item.previous_status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, baseline_start_date: item.baseline_start_date, baseline_end_date: item.baseline_end_date, actual_end_date: item.actual_end_date, pull_forward: item.pull_forward, change_type: item.change_type, change_reason: item.change_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work' });
   const [resetBaseline, setResetBaseline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -374,7 +378,8 @@ function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: 
       const payload = resetBaseline
         ? { ...draft, baseline_start_date: draft.start_date, baseline_end_date: draft.end_date, change_type: 'none', change_reason: '' }
         : { ...draft, change_type: draft.change_type === 'none' ? inferredChange : draft.change_type };
-      await api(item ? `/api/items/${item.id}` : `/api/projects/${project.id}/items`, { method: item ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+      const statusAwarePayload = item && item.status !== 'done' && draft.status === 'done' ? { ...payload, previous_status: item.status } : payload;
+      await api(item ? `/api/items/${item.id}` : `/api/projects/${project.id}/items`, { method: item ? 'PATCH' : 'POST', body: JSON.stringify(statusAwarePayload) });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'Fehler beim Speichern'); setSaving(false); }
   };

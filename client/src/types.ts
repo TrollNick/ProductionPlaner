@@ -10,6 +10,7 @@ export type PlanItem = {
   start_date: string;
   end_date: string;
   status: Status;
+  previous_status: Exclude<Status, 'done'>;
   schedule_mode: 'auto' | 'fixed';
   extension_days: number;
   extension_reason: string;

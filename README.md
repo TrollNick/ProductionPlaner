@@ -18,6 +18,8 @@ Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
 - sichtbare Verlängerungen mit zusätzlichen Arbeitstagen und Begründung
 - Balken im freischaltbaren Bearbeitungsmodus verschieben
 - alternative Kalenderansicht auf derselben Datengrundlage
+- Abhängigkeitsketten und „Nach: …“-Hinweise auch in der Kalenderansicht
+- Erledigt-Status springt bei einem zweiten Klick zum vorherigen Stand zurück
 - manuell änderbare Termine, Zuständigkeiten und Notizen
 - Vorschau auf Terminverschiebungen und mögliche Fertigstellung
 - bestehende Aufträge als Ausgangspunkt kopieren

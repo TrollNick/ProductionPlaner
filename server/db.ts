@@ -31,6 +31,7 @@ db.exec(`
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'active', 'done')),
+    previous_status TEXT NOT NULL DEFAULT 'open',
     schedule_mode TEXT NOT NULL DEFAULT 'auto' CHECK(schedule_mode IN ('auto', 'fixed')),
     extension_days INTEGER NOT NULL DEFAULT 0,
     extension_reason TEXT NOT NULL DEFAULT '',
@@ -64,6 +65,7 @@ if (!itemColumns.has('actual_end_date')) db.exec("ALTER TABLE items ADD COLUMN a
 if (!itemColumns.has('pull_forward')) db.exec('ALTER TABLE items ADD COLUMN pull_forward INTEGER NOT NULL DEFAULT 0');
 if (!itemColumns.has('change_type')) db.exec("ALTER TABLE items ADD COLUMN change_type TEXT NOT NULL DEFAULT 'none'");
 if (!itemColumns.has('change_reason')) db.exec("ALTER TABLE items ADD COLUMN change_reason TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('previous_status')) db.exec("ALTER TABLE items ADD COLUMN previous_status TEXT NOT NULL DEFAULT 'open'");
 
 const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get() as { count: number };
 if (projectCount.count === 0 && process.env.SEED_DEMO !== 'false') {
