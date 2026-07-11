@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "description": "Komplexe TAKT-Testszenarien für Lieferverzug, frühe Fertigstellung und Planungskonflikte",
+  "projects": [
+    {
+      "name": "TEST A · Kleinserie mit Lieferverzug",
+      "customer": "Nordwerk Automation",
+      "target_date": "2026-08-14",
+      "color": "#d7795f",
+      "notes": "Prüft Lieferverzug, Krankheit, Verlängerung und automatisch nachlaufende Montage.",
+      "items": [
+        {
+          "key": "fraesteile",
+          "type": "delivery",
+          "title": "Frästeile Achssatz",
+          "partner": "Präzision Müller",
+          "start_date": "2026-07-06",
+          "end_date": "2026-07-27",
+          "baseline_start_date": "2026-07-06",
+          "baseline_end_date": "2026-07-17",
+          "status": "open",
+          "change_type": "delay",
+          "change_reason": "Lieferant meldet: Fräsmaschine defekt – Verzögerung etwa eine Woche",
+          "notes": "Neuer Termin telefonisch bestätigt.",
+          "dependencies": []
+        },
+        {
+          "key": "antriebe",
+          "type": "delivery",
+          "title": "Servoantriebe",
+          "partner": "DriveTech",
+          "start_date": "2026-07-06",
+          "end_date": "2026-07-15",
+          "status": "open",
+          "dependencies": []
+        },
+        {
+          "key": "kabelbaum",
+          "type": "work",
+          "title": "Kabelbaum vorfertigen",
+          "partner": "Lena",
+          "start_date": "2026-07-13",
+          "end_date": "2026-07-17",
+          "status": "active",
+          "previous_status": "open",
+          "schedule_mode": "auto",
+          "extension_days": 2,
+          "extension_reason": "Zwei Tage krankheitsbedingte Unterbrechung",
+          "change_type": "pause",
+          "change_reason": "Mitarbeiterin zwei Tage krank – Arbeit wird danach fortgesetzt",
+          "dependencies": []
+        },
+        {
+          "key": "achse",
+          "type": "work",
+          "title": "Achssatz montieren",
+          "partner": "Jan",
+          "start_date": "2026-07-20",
+          "end_date": "2026-07-24",
+          "status": "open",
+          "schedule_mode": "auto",
+          "pull_forward": 0,
+          "notes": "Soll dem verspäteten Frästeilsatz automatisch folgen.",
+          "dependencies": ["fraesteile", "antriebe"]
+        },
+        {
+          "key": "endmontage",
+          "type": "work",
+          "title": "Endmontage und Abnahme",
+          "partner": "Team",
+          "start_date": "2026-07-27",
+          "end_date": "2026-08-07",
+          "status": "open",
+          "schedule_mode": "auto",
+          "pull_forward": 0,
+          "dependencies": ["achse", "kabelbaum"]
+        }
+      ]
+    },
+    {
+      "name": "TEST B · Früher fertig mit Wahlfreiheit",
+      "customer": "Kramer Retrofit",
+      "target_date": "2026-07-31",
+      "color": "#87a767",
+      "notes": "Eine Folgearbeit rückt vor, die nächste behält bewusst ihren geplanten Termin.",
+      "items": [
+        {
+          "key": "aufnahme",
+          "type": "work",
+          "title": "Bestandsaufnahme beim Kunden",
+          "partner": "Nico",
+          "start_date": "2026-07-06",
+          "end_date": "2026-07-10",
+          "actual_end_date": "2026-07-08",
+          "status": "done",
+          "previous_status": "active",
+          "change_type": "early",
+          "change_reason": "Kunde hatte alle Unterlagen vorbereitet – zwei Arbeitstage früher fertig",
+          "dependencies": []
+        },
+        {
+          "key": "umrichter",
+          "type": "delivery",
+          "title": "Ersatzumrichter",
+          "partner": "Antriebstechnik West",
+          "start_date": "2026-07-06",
+          "end_date": "2026-07-16",
+          "actual_end_date": "2026-07-14",
+          "status": "done",
+          "previous_status": "open",
+          "change_type": "early",
+          "change_reason": "Ware war überraschend im Außenlager verfügbar",
+          "dependencies": []
+        },
+        {
+          "key": "vorbereitung",
+          "type": "work",
+          "title": "Umbau in Werkstatt vorbereiten",
+          "partner": "Lena",
+          "start_date": "2026-07-13",
+          "end_date": "2026-07-17",
+          "status": "open",
+          "schedule_mode": "auto",
+          "pull_forward": 1,
+          "notes": "Darf bei früher Freigabe direkt nach vorne rücken.",
+          "dependencies": ["aufnahme"]
+        },
+        {
+          "key": "kundeneinsatz",
+          "type": "work",
+          "title": "Umbau beim Kunden",
+          "partner": "Nico & Jan",
+          "start_date": "2026-07-20",
+          "end_date": "2026-07-24",
+          "status": "open",
+          "schedule_mode": "auto",
+          "pull_forward": 0,
+          "notes": "Termin mit Kunde steht; freie Tage bleiben bewusst als Puffer.",
+          "dependencies": ["umrichter", "vorbereitung"]
+        }
+      ]
+    },
+    {
+      "name": "TEST C · Bewusster Terminkonflikt",
+      "customer": "Sonderanlage Prototyp",
+      "target_date": "2026-08-07",
+      "color": "#778cba",
+      "notes": "Prüft einen festgehaltenen, aber durch ein Fehlteil unmöglichen Arbeitstermin.",
+      "items": [
+        {
+          "key": "sensorik",
+          "type": "delivery",
+          "title": "Kundenspezifische Sensorik",
+          "partner": "Sensorik Nord",
+          "start_date": "2026-07-06",
+          "end_date": "2026-07-31",
+          "baseline_start_date": "2026-07-06",
+          "baseline_end_date": "2026-07-17",
+          "status": "open",
+          "change_type": "delay",
+          "change_reason": "Vergussanlage beim Lieferanten ausgefallen – neuer Termin Ende Juli",
+          "dependencies": []
+        },
+        {
+          "key": "schaltschrank",
+          "type": "work",
+          "title": "Schaltschrank vorbereiten",
+          "partner": "Lena",
+          "start_date": "2026-07-13",
+          "end_date": "2026-07-17",
+          "status": "active",
+          "previous_status": "open",
+          "schedule_mode": "auto",
+          "extension_days": 3,
+          "extension_reason": "Drei Tage Kundendienst dazwischen",
+          "change_type": "pause",
+          "change_reason": "Dringender Kundeneinsatz unterbricht die Arbeit für drei Tage",
+          "dependencies": []
+        },
+        {
+          "key": "systemtest",
+          "type": "work",
+          "title": "Systemtest mit Sensorik",
+          "partner": "Jan",
+          "start_date": "2026-07-20",
+          "end_date": "2026-07-22",
+          "status": "open",
+          "schedule_mode": "fixed",
+          "pull_forward": 0,
+          "notes": "Absichtlich festgehalten, damit die rote Konfliktwarnung sichtbar wird.",
+          "dependencies": ["sensorik", "schaltschrank"]
+        },
+        {
+          "key": "freigabe",
+          "type": "work",
+          "title": "Kundenfreigabe und Dokumentation",
+          "partner": "Team",
+          "start_date": "2026-07-23",
+          "end_date": "2026-07-27",
+          "status": "open",
+          "schedule_mode": "auto",
+          "dependencies": ["systemtest"]
+        }
+      ]
+    }
+  ]
+}

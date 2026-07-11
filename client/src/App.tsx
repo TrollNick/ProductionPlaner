@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Box, CalendarDays, Check, ChevronRight,
   CalendarRange, ChartGantt, CircleAlert, CircleDot, Clock3, Factory, GripVertical,
-  Link2, LockKeyhole, PackageCheck, PanelLeftClose, PanelLeftOpen, Pause, Pencil,
-  Plus, RefreshCw, Search, Trash2, Truck, UnlockKeyhole, Users, Wrench, X,
+  Download, FlaskConical, Link2, LockKeyhole, PackageCheck, PanelLeftClose,
+  PanelLeftOpen, Pause, Pencil, Plus, RefreshCw, Search, Trash2, Truck,
+  UnlockKeyhole, Upload, Users, Wrench, X,
 } from 'lucide-react';
 import type { ItemType, PlanItem, Project, Status } from './types';
 
@@ -54,8 +56,10 @@ export function App() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [projectModal, setProjectModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('takt-sidebar') === 'collapsed');
+  const importInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -68,6 +72,33 @@ export function App() {
   useEffect(() => { void load(); }, [load]);
   const selected = projects.find((project) => project.id === selectedId);
   const selectProject = (id: number) => { setSelectedId(id); setSidebarCollapsed(true); window.localStorage.setItem('takt-sidebar', 'collapsed'); };
+  const importPayload = async (payload: unknown, label: string) => {
+    try {
+      setError('');
+      const result = await api<{ imported: number }>('/api/import', { method: 'POST', body: JSON.stringify(payload) });
+      await load();
+      setNotice(`${result.imported} ${result.imported === 1 ? 'Projekt' : 'Projekte'} aus ${label} hinzugefügt.`);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Import fehlgeschlagen.'); }
+  };
+  const handleImportFile = async (file?: File) => {
+    if (!file) return;
+    try { await importPayload(JSON.parse(await file.text()), file.name); }
+    catch { setError('Die ausgewählte Datei ist kein gültiges TAKT-JSON.'); }
+  };
+  const loadTestScenarios = async () => {
+    if (!window.confirm('Drei zusätzliche Testszenarien mit komplexen Abhängigkeiten laden?')) return;
+    try { await importPayload(await fetch('/test-scenarios.json').then((response) => response.json()), 'Testszenarien'); }
+    catch { setError('Die Testszenarien konnten nicht geladen werden.'); }
+  };
+  const exportProjects = async () => {
+    try {
+      const payload = await api<unknown>('/api/export');
+      const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = `takt-export-${today}.json`; link.click(); URL.revokeObjectURL(url);
+      setNotice('JSON-Export wurde erstellt.');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Export fehlgeschlagen.'); }
+  };
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -91,10 +122,12 @@ export function App() {
 
       <main>
         {error ? <div className="error-banner"><AlertTriangle size={18} /> {error}<button onClick={() => void load()}><RefreshCw size={16} /> Neu laden</button></div> : null}
+        {notice ? <div className="notice-banner"><Check /> {notice}<button onClick={() => setNotice('')} aria-label="Hinweis schließen"><X /></button></div> : null}
         {loading ? <Loading /> : selected ? <ProjectDetail project={selected} onBack={() => setSelectedId(null)} onChange={load} /> : (
-          <Dashboard projects={projects} search={search} setSearch={setSearch} onSelect={selectProject} onAdd={() => setProjectModal(true)} />
+          <Dashboard projects={projects} search={search} setSearch={setSearch} onSelect={selectProject} onAdd={() => setProjectModal(true)} onImport={() => importInput.current?.click()} onExport={exportProjects} onLoadTests={loadTestScenarios} />
         )}
       </main>
+      <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={(event) => { void handleImportFile(event.target.files?.[0]); event.target.value = ''; }} />
       {projectModal ? <ProjectModal projects={projects} onClose={() => setProjectModal(false)} onSaved={async (id) => { await load(); setProjectModal(false); selectProject(id); }} /> : null}
     </div>
   );
@@ -104,8 +137,8 @@ function Loading() {
   return <div className="loading"><RefreshCw className="spin" /><span>Produktionsplan wird geladen …</span></div>;
 }
 
-function Dashboard({ projects, search, setSearch, onSelect, onAdd }: {
-  projects: Project[]; search: string; setSearch: (value: string) => void; onSelect: (id: number) => void; onAdd: () => void;
+function Dashboard({ projects, search, setSearch, onSelect, onAdd, onImport, onExport, onLoadTests }: {
+  projects: Project[]; search: string; setSearch: (value: string) => void; onSelect: (id: number) => void; onAdd: () => void; onImport: () => void; onExport: () => void; onLoadTests: () => void;
 }) {
   const filtered = projects.filter((project) => `${project.name} ${project.customer}`.toLowerCase().includes(search.toLowerCase()));
   const delayed = projects.filter((project) => project.forecast.completion > project.target_date).length;
@@ -115,7 +148,7 @@ function Dashboard({ projects, search, setSearch, onSelect, onAdd }: {
   return <div className="page dashboard-page">
     <header className="page-header">
       <div><span className="eyebrow">{formatWeekday(today)} · {formatDate(today, true)}</span><h1>Was steht an?</h1><p>Der gemeinsame Blick auf Lieferungen, Arbeiten und mögliche Auslieferungen.</p></div>
-      <button className="primary" onClick={onAdd}><Plus size={18} /> Neuer Auftrag</button>
+      <div className="dashboard-actions"><button className="tool-button" onClick={onLoadTests}><FlaskConical /> Testszenarien</button><button className="tool-button" onClick={onImport}><Upload /> Import</button><button className="tool-button" onClick={onExport}><Download /> Export</button><button className="primary" onClick={onAdd}><Plus size={18} /> Neuer Auftrag</button></div>
     </header>
 
     <section className="pulse-strip">
@@ -200,6 +233,7 @@ function ProjectDetail({ project, onBack, onChange }: { project: Project; onBack
     <section className="timeline-section">
       <div className="planning-toolbar">
         <div><h2>Produktionsplan</h2><span>Montag bis Freitag · alle Termine sind Arbeitstage</span></div>
+        <div className={`today-context ${isBusinessDay(today) ? '' : 'weekend'}`}><CalendarDays /><div><strong>Heute · {formatWeekday(today)}, {formatCompactDate(today)}</strong><small>{isBusinessDay(today) ? 'Aktueller Arbeitstag' : `Außerhalb der Arbeitswoche · nächster Arbeitstag ${formatWeekday(nextBusinessDay(today))}, ${formatCompactDate(nextBusinessDay(today))}`}</small></div></div>
         <div className="toolbar-actions">
           <div className="view-switch"><button className={view === 'timeline' ? 'active' : ''} onClick={() => setView('timeline')}><ChartGantt /> Zeitstrahl</button><button className={view === 'calendar' ? 'active' : ''} onClick={() => { setView('calendar'); setEditMode(false); }}><CalendarRange /> Kalender</button></div>
           {view === 'timeline' ? <button className={`edit-toggle ${editMode ? 'active' : ''}`} onClick={() => setEditMode((current) => !current)}>{editMode ? <UnlockKeyhole /> : <LockKeyhole />}{editMode ? 'Verschieben aktiv' : 'Balken verschieben'}</button> : null}
@@ -233,6 +267,7 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
   const workdays = useMemo(() => planningDays(project), [project]);
   const index = useMemo(() => new Map(workdays.map((date, position) => [date, position])), [workdays]);
   const drag = useRef<{ itemId: number; x: number } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ item: PlanItem; forecast: Project['forecast']['itemForecasts'][number]; dependencies: string[]; x: number; y: number; placement: 'top' | 'bottom' } | null>(null);
   const gridWidth = workdays.length * DAY_WIDTH;
   const fullWidth = INFO_WIDTH + gridWidth + STATUS_WIDTH;
   const positionOf = (date: string) => index.get(isBusinessDay(date) ? date : nextBusinessDay(date, true)) ?? 0;
@@ -250,7 +285,7 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
     return [{ id: `${dependencyId}-${item.id}`, path: `M ${x1} ${y1} H ${elbow} V ${y2} H ${x2}`, conflict: itemForecast.conflict }];
   }));
 
-  return <div className={`timeline-scroll dense ${editMode ? 'edit-mode' : ''}`}><div className="timeline dense-timeline" style={{ width: fullWidth }}>
+  return <><div className={`timeline-scroll dense ${editMode ? 'edit-mode' : ''}`}><div className="timeline dense-timeline" style={{ width: fullWidth }}>
     <div className="timeline-head dense-head" style={{ gridTemplateColumns: `${INFO_WIDTH}px ${gridWidth}px ${STATUS_WIDTH}px` }}>
       <div>Vorgang / Abhängigkeit</div>
       <div className="day-axis" style={{ gridTemplateColumns: `repeat(${workdays.length}, ${DAY_WIDTH}px)` }}>{workdays.map((date) => <span className={`${date === today ? 'today' : ''} ${parseDate(date).getDay() === 1 ? 'monday' : ''}`} key={date}><small>{new Intl.DateTimeFormat('de-DE', { weekday: 'short' }).format(parseDate(date)).slice(0, 2)}</small><strong>{formatCompactDate(date)}</strong>{parseDate(date).getDay() === 1 ? <i>KW {isoWeek(date)}</i> : null}</span>)}</div>
@@ -276,7 +311,6 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
       const extensionWidth = Math.max(0, (actualEnd - baseEnd) * DAY_WIDTH);
       const hasBaselineChange = item.baseline_start_date !== item.start_date || item.baseline_end_date !== item.end_date;
       const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : '';
-      const tooltipLeft = Math.max(6, Math.min(actualStart * DAY_WIDTH, gridWidth - 292));
       const dragStart = (event: React.DragEvent) => { drag.current = { itemId: item.id, x: event.clientX }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(item.id)); };
       const dragEnd = (event: React.DragEvent) => { if (!drag.current || drag.current.itemId !== item.id) return; const delta = Math.round((event.clientX - drag.current.x) / DAY_WIDTH); drag.current = null; if (delta) void onMove(item, delta); };
       return <div className={`timeline-row dense-row ${item.status === 'done' ? 'is-done' : ''} ${forecast.conflict ? 'has-conflict' : ''}`} style={{ gridTemplateColumns: `${INFO_WIDTH}px ${gridWidth}px ${STATUS_WIDTH}px` }} key={item.id}>
@@ -289,30 +323,57 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
             {hasBaselineChange ? <i className={`delivery-deviation-line ${actualStart > baselineEnd ? 'delay' : 'early'}`} title={deviationTitle} style={{ left: Math.min(actualStart, baselineEnd) * DAY_WIDTH + DAY_WIDTH / 2, width: Math.abs(actualStart - baselineEnd) * DAY_WIDTH }} /> : null}
           </> : null}
           {(forecast.shifted || hasBaselineChange) && item.type === 'work' ? <i className="planned-ghost" title={`Basisplan ${formatDate(item.baseline_start_date)}–${formatDate(item.baseline_end_date)}`} style={{ left: baselineStart * DAY_WIDTH + 4, width: Math.max(DAY_WIDTH - 8, (baselineEnd - baselineStart + 1) * DAY_WIDTH - 8) }} /> : null}
-          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} aria-label={`${item.title}: ${deviationTitle || `${formatDate(forecast.start)} bis ${formatDate(forecast.end)}`}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
+          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onMouseEnter={(event) => { const rect = event.currentTarget.getBoundingClientRect(); const placement = rect.top < 230 ? 'bottom' : 'top'; setHoverInfo({ item, forecast, dependencies, x: Math.max(190, Math.min(window.innerWidth - 190, rect.left + rect.width / 2)), y: placement === 'bottom' ? rect.bottom : rect.top, placement }); }} onMouseLeave={() => setHoverInfo(null)} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} aria-label={`${item.title}: ${deviationTitle || `${formatDate(forecast.start)} bis ${formatDate(forecast.end)}`}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
             {editMode ? <GripVertical /> : <ItemIcon type={item.type} />}<span>{item.type === 'delivery' ? formatDate(forecast.end) : `${formatDate(forecast.start)} – ${formatDate(forecast.base_end)}`}</span>
           </div>
-          {deviationTitle ? <div className={`bar-hover-card ${item.change_type}`} style={{ left: tooltipLeft }}><header><CircleAlert /><span>{changeLabels[item.change_type]}</span></header><strong>{item.change_reason || 'Grund noch nicht eingetragen'}</strong><div className="hover-date-change"><span>Plan <b>{formatDate(item.baseline_end_date, true)}</b></span><ArrowRight /><span>Aktuell <b>{formatDate(item.actual_end_date || forecast.end, true)}</b></span></div></div> : null}
           {extensionWidth ? <button className="extension-bar" onClick={() => onEdit(item)} title={`${item.extension_days} zusätzliche Arbeitstage: ${item.extension_reason || 'ohne Begründung'}`} style={{ left: (baseEnd + 1) * DAY_WIDTH, width: extensionWidth }}><Pause /><span>+{item.extension_days} AT</span></button> : null}
         </div>
         <div className="row-status">{forecast.conflict ? <span className="conflict-state"><CircleAlert /> Blockiert</span> : null}<button title={item.status === 'done' ? `Zurück zu ${statusLabels[item.previous_status]}` : 'Als erledigt markieren'} disabled={saving} className={`status-button ${item.status}`} onClick={() => void onToggleDone(item)}>{item.status === 'done' ? <Check /> : item.status === 'active' ? <Clock3 /> : <CircleDot />}<span>{statusLabels[item.status]}</span></button></div>
       </div>;
     })}
     {project.items.length === 0 ? <div className="empty-timeline">Noch keine Lieferungen oder Arbeiten. Füge den ersten Eintrag hinzu.</div> : null}
-  </div></div>;
+  </div></div>{hoverInfo ? createPortal(<div role="tooltip" className={`floating-info-card ${hoverInfo.placement} ${hoverInfo.item.change_type}`} style={{ left: hoverInfo.x, top: hoverInfo.y }}><div className="floating-card-head"><span className={hoverInfo.item.type}><ItemIcon type={hoverInfo.item.type} /></span><div><small>{hoverInfo.item.type === 'delivery' ? 'Lieferung' : 'Arbeit'} · {statusLabels[hoverInfo.item.status]}</small><strong>{hoverInfo.item.title}</strong></div></div><div className="floating-meta"><span>{hoverInfo.item.type === 'delivery' ? 'Lieferant' : 'Verantwortlich'}<b>{hoverInfo.item.partner || 'Nicht eingetragen'}</b></span><span>Aktuell<b>{formatDate(hoverInfo.forecast.start)} – {formatDate(hoverInfo.forecast.end)}</b></span></div>{hoverInfo.item.change_type !== 'none' ? <div className="floating-deviation"><CircleAlert /><div><small>{changeLabels[hoverInfo.item.change_type]}</small><strong>{hoverInfo.item.change_reason || 'Grund noch nicht eingetragen'}</strong></div></div> : null}<div className="floating-plan"><span>Basisplan <b>{formatDate(hoverInfo.item.baseline_start_date)} – {formatDate(hoverInfo.item.baseline_end_date)}</b></span>{hoverInfo.dependencies.length ? <span><Link2 /> Nach: <b>{hoverInfo.dependencies.join(', ')}</b></span> : null}{hoverInfo.item.notes ? <p>{hoverInfo.item.notes}</p> : null}</div></div>, document.body) : null}</>;
 }
 
 function WorkCalendar({ project, onEdit }: { project: Project; onEdit: (item: PlanItem) => void }) {
   const workdays = useMemo(() => planningDays(project), [project]);
   const weeks = useMemo(() => { const result: string[][] = []; for (let i = 0; i < workdays.length; i += 5) result.push(workdays.slice(i, i + 5)); return result; }, [workdays]);
   const dependencyChains = useMemo(() => project.items.flatMap((item) => item.dependency_ids.flatMap((dependencyId) => { const dependency = project.items.find((candidate) => candidate.id === dependencyId); return dependency ? [{ dependency, item }] : []; })), [project]);
+  const calendarBodyRef = useRef<HTMLDivElement>(null);
+  const [calendarConnections, setCalendarConnections] = useState<{ id: string; path: string; conflict: boolean }[]>([]);
+  useLayoutEffect(() => {
+    const root = calendarBodyRef.current;
+    if (!root) return;
+    const updateConnections = () => {
+      const rootRect = root.getBoundingClientRect();
+      const paths = dependencyChains.flatMap(({ dependency, item }) => {
+        const source = root.querySelector<HTMLElement>(`[data-calendar-end="${dependency.id}"]`);
+        const target = root.querySelector<HTMLElement>(`[data-calendar-start="${item.id}"]`);
+        if (!source || !target) return [];
+        const sourceRect = source.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const x1 = sourceRect.right - rootRect.left - 5;
+        const y1 = sourceRect.top - rootRect.top + sourceRect.height / 2;
+        const x2 = targetRect.left - rootRect.left + 5;
+        const y2 = targetRect.top - rootRect.top + targetRect.height / 2;
+        const lane = Math.min(rootRect.width - 8, Math.max(x1, x2) + 16);
+        return [{ id: `${dependency.id}-${item.id}`, path: `M ${x1} ${y1} H ${lane} V ${y2} H ${x2}`, conflict: project.forecast.itemForecasts[item.id]?.conflict || false }];
+      });
+      setCalendarConnections(paths);
+    };
+    updateConnections();
+    const observer = new ResizeObserver(updateConnections);
+    observer.observe(root);
+    window.addEventListener('resize', updateConnections);
+    return () => { observer.disconnect(); window.removeEventListener('resize', updateConnections); };
+  }, [dependencyChains, project]);
   return <div className="work-calendar">
     {dependencyChains.length ? <div className="calendar-dependency-map"><header><Link2 /><div><strong>Abhängigkeiten</strong><small>Die gleiche Logik wie im Zeitstrahl</small></div></header><div>{dependencyChains.map(({ dependency, item }) => <button onClick={() => onEdit(item)} key={`${dependency.id}-${item.id}`}><span>{dependency.title}</span><ArrowRight /><strong>{item.title}</strong></button>)}</div></div> : null}
     <div className="calendar-weekdays">{['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map((day) => <span key={day}>{day}</span>)}</div>
-    {weeks.map((week) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-days">{week.map((date) => {
+    <div className="calendar-weeks-body" ref={calendarBodyRef}><svg className="calendar-dependency-overlay" aria-hidden="true"><defs><marker id="calendar-dependency-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L0,7 L7,3.5 z" /></marker></defs>{calendarConnections.map((connection) => <path key={connection.id} d={connection.path} className={connection.conflict ? 'conflict' : ''} markerEnd="url(#calendar-dependency-arrow)" />)}</svg>{weeks.map((week) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-days">{week.map((date) => {
       const entries = project.items.filter((item) => { const forecast = project.forecast.itemForecasts[item.id]; return item.type === 'delivery' ? forecast.end === date : forecast.start <= date && forecast.end >= date; });
-      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : ''; const dependencies = item.dependency_ids.map((id) => project.items.find((candidate) => candidate.id === id)?.title).filter(Boolean); return <button title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type} ${dependencies.length ? 'has-dependency' : ''}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status]}</small>{dependencies.length && date === forecast.start ? <small className="calendar-dependency"><Link2 /> Nach: {dependencies.join(', ')}</small> : null}</span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' ? <AlertTriangle /> : null}</button>; })}</div></div>;
-    })}</div></section>)}
+      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : ''; const dependencies = item.dependency_ids.map((id) => project.items.find((candidate) => candidate.id === id)?.title).filter(Boolean); return <button data-calendar-start={date === forecast.start ? item.id : undefined} data-calendar-end={date === forecast.end ? item.id : undefined} title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type} ${dependencies.length ? 'has-dependency' : ''}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status]}</small>{dependencies.length && date === forecast.start ? <small className="calendar-dependency"><Link2 /> Nach: {dependencies.join(', ')}</small> : null}</span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' ? <AlertTriangle /> : null}</button>; })}</div></div>;
+    })}</div></section>)}</div>
   </div>;
 }
 

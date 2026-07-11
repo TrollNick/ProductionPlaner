@@ -25,6 +25,18 @@ Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
 - bestehende Aufträge als Ausgangspunkt kopieren
 - für PC, Tablet und Smartphone optimiert
 - SQLite-Datenbank ohne separaten Datenbankserver
+- JSON-Import und -Export für Datentransfer und Tests
+- drei komplexe Testszenarien direkt über „Testszenarien“ ladbar
+
+## Testszenarien
+
+Auf der Übersicht über **Testszenarien** drei zusätzliche Beispielprojekte laden:
+
+1. Kleinserie mit Lieferverzug, Krankheit und nachlaufender Endmontage
+2. Frühere Fertigstellung mit optionalem Vorziehen und bewusst erhaltenem Puffer
+3. Festgehaltener Terminkonflikt durch verspätete Sensorik
+
+Die Szenarien verwenden dasselbe Format wie der JSON-Export. Die mitgelieferte Datei liegt unter `public/test-scenarios.json` und kann über **Import** auch manuell geladen werden.
 
 ## Auf Unraid starten
 

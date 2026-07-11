@@ -27,6 +27,70 @@ function getProjects(includeArchived = false) {
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.get('/api/projects', (_req, res) => res.json(getProjects()));
 
+app.get('/api/export', (_req, res) => {
+  const projects = getProjects() as unknown as Array<Row & { items: Array<Row & { id: number; dependency_ids: number[] }> }>;
+  res.json({
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    projects: projects.map((project) => {
+      const keys = new Map(project.items.map((item) => [item.id, `item-${item.id}`]));
+      const { id: _id, items, forecast: _forecast, created_at: _created, updated_at: _updated, archived: _archived, ...projectData } = project;
+      return {
+        ...projectData,
+        items: items.map((item) => {
+          const { id, project_id: _projectId, sort_order: _sort, dependency_ids, ...itemData } = item;
+          return { key: keys.get(id), ...itemData, dependencies: dependency_ids.map((dependencyId) => keys.get(dependencyId)).filter(Boolean) };
+        }),
+      };
+    }),
+  });
+});
+
+app.post('/api/import', (req, res) => {
+  const projects = req.body?.projects;
+  if (!Array.isArray(projects) || projects.length === 0) return res.status(400).json({ error: 'Die Datei enthält keine Projekte.' });
+  if (projects.length > 50) return res.status(400).json({ error: 'Maximal 50 Projekte pro Import.' });
+
+  const importProjects = db.transaction(() => {
+    let imported = 0;
+    for (const project of projects) {
+      if (!project?.name || !project?.target_date || !Array.isArray(project.items)) continue;
+      const projectResult = db.prepare('INSERT INTO projects (name, customer, target_date, color, notes) VALUES (?, ?, ?, ?, ?)')
+        .run(project.name, project.customer || '', project.target_date, project.color || '#e8a83e', project.notes || '');
+      const projectId = Number(projectResult.lastInsertRowid);
+      const keyMap = new Map<string, number>();
+      project.items.forEach((item: Row, index: number) => {
+        if (!item.title || !['delivery', 'work'].includes(String(item.type)) || !item.start_date || !item.end_date) return;
+        const result = db.prepare(`INSERT INTO items (project_id, type, title, partner, start_date, end_date, status, previous_status, schedule_mode, extension_days, extension_reason, baseline_start_date, baseline_end_date, actual_end_date, pull_forward, change_type, change_reason, notes, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          projectId, item.type, item.title, item.partner || '', item.start_date, item.end_date,
+          item.status || 'open', item.previous_status || 'open', item.schedule_mode || 'auto',
+          Math.max(0, Number(item.extension_days) || 0), item.extension_reason || '',
+          item.baseline_start_date || item.start_date, item.baseline_end_date || item.end_date,
+          item.actual_end_date || '', Number(Boolean(item.pull_forward)), item.change_type || 'none',
+          item.change_reason || '', item.notes || '', index + 1,
+        );
+        keyMap.set(String(item.key || index), Number(result.lastInsertRowid));
+      });
+      project.items.forEach((item: Row, index: number) => {
+        const itemId = keyMap.get(String(item.key || index));
+        const dependencies = Array.isArray(item.dependencies) ? item.dependencies : [];
+        if (!itemId) return;
+        for (const dependencyKey of dependencies) {
+          const dependencyId = keyMap.get(String(dependencyKey));
+          if (dependencyId && dependencyId !== itemId) db.prepare('INSERT OR IGNORE INTO dependencies VALUES (?, ?)').run(itemId, dependencyId);
+        }
+      });
+      imported += 1;
+    }
+    return imported;
+  });
+
+  const imported = importProjects();
+  if (!imported) return res.status(400).json({ error: 'Keine gültigen Projekte gefunden.' });
+  res.status(201).json({ imported });
+});
+
 app.post('/api/projects', (req, res) => {
   const { name, customer = '', target_date, color = '#e8a83e', notes = '', source_id } = req.body;
   if (!name || !target_date) return res.status(400).json({ error: 'Name und Zieltermin sind erforderlich.' });
