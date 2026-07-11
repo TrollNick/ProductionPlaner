@@ -11,6 +11,7 @@ const DAY = 86_400_000;
 const today = new Date().toISOString().slice(0, 10);
 const colors = ['#e8a83e', '#6ca6a1', '#d7795f', '#778cba', '#87a767'];
 const statusLabels: Record<Status, string> = { open: 'Offen', active: 'Läuft', done: 'Erledigt' };
+const changeLabels: Record<PlanItem['change_type'], string> = { none: 'Keine Abweichung', delay: 'Verspätung', early: 'Früher', pause: 'Unterbrechung', info: 'Hinweis' };
 
 function parseDate(value: string) { return new Date(`${value}T12:00:00`); }
 function formatDate(value?: string, withYear = false) {
@@ -41,9 +42,11 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 type ItemDraft = Omit<PlanItem, 'id' | 'project_id' | 'sort_order'>;
-const emptyItem = (date = today): ItemDraft => ({
-  type: 'work', title: '', partner: '', start_date: nextBusinessDay(date, true), end_date: addBusinessDays(nextBusinessDay(date, true), 4), status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', notes: '', dependency_ids: [],
-});
+const emptyItem = (date = today): ItemDraft => {
+  const start = nextBusinessDay(date, true);
+  const end = addBusinessDays(start, 4);
+  return { type: 'work', title: '', partner: '', start_date: start, end_date: end, status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', baseline_start_date: start, baseline_end_date: end, actual_end_date: '', pull_forward: 0, change_type: 'none', change_reason: '', notes: '', dependency_ids: [] };
+};
 
 export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -64,6 +67,7 @@ export function App() {
 
   useEffect(() => { void load(); }, [load]);
   const selected = projects.find((project) => project.id === selectedId);
+  const selectProject = (id: number) => { setSelectedId(id); setSidebarCollapsed(true); window.localStorage.setItem('takt-sidebar', 'collapsed'); };
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -77,7 +81,7 @@ export function App() {
           <button className={!selected ? 'active' : ''} onClick={() => setSelectedId(null)}><CircleDot size={18} /> Übersicht</button>
           <div className="nav-label">Laufende Aufträge</div>
           {projects.map((project) => (
-            <button className={selectedId === project.id ? 'active project-nav' : 'project-nav'} key={project.id} onClick={() => setSelectedId(project.id)}>
+            <button className={selectedId === project.id ? 'active project-nav' : 'project-nav'} key={project.id} onClick={() => selectProject(project.id)}>
               <i style={{ background: project.color }} /> <span>{project.name}</span>
             </button>
           ))}
@@ -88,10 +92,10 @@ export function App() {
       <main>
         {error ? <div className="error-banner"><AlertTriangle size={18} /> {error}<button onClick={() => void load()}><RefreshCw size={16} /> Neu laden</button></div> : null}
         {loading ? <Loading /> : selected ? <ProjectDetail project={selected} onBack={() => setSelectedId(null)} onChange={load} /> : (
-          <Dashboard projects={projects} search={search} setSearch={setSearch} onSelect={setSelectedId} onAdd={() => setProjectModal(true)} />
+          <Dashboard projects={projects} search={search} setSearch={setSearch} onSelect={selectProject} onAdd={() => setProjectModal(true)} />
         )}
       </main>
-      {projectModal ? <ProjectModal projects={projects} onClose={() => setProjectModal(false)} onSaved={async (id) => { await load(); setProjectModal(false); setSelectedId(id); }} /> : null}
+      {projectModal ? <ProjectModal projects={projects} onClose={() => setProjectModal(false)} onSaved={async (id) => { await load(); setProjectModal(false); selectProject(id); }} /> : null}
     </div>
   );
 }
@@ -160,7 +164,9 @@ function ProjectDetail({ project, onBack, onChange }: { project: Project; onBack
 
   const toggleDone = async (item: PlanItem) => {
     setSaving(true);
-    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: item.status === 'done' ? 'open' : 'done' }) });
+    const done = item.status !== 'done';
+    const actualDate = item.type === 'work' && !isBusinessDay(today) ? addBusinessDays(today, -1) : today;
+    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: done ? 'done' : 'open', actual_end_date: done ? actualDate : '' }) });
     await onChange();
     setSaving(false);
   };
@@ -168,8 +174,12 @@ function ProjectDetail({ project, onBack, onChange }: { project: Project; onBack
   const moveItem = async (item: PlanItem, workdayDelta: number) => {
     if (!workdayDelta) return;
     setSaving(true);
-    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ start_date: addBusinessDays(item.start_date, workdayDelta), end_date: addBusinessDays(item.end_date, workdayDelta) }) });
+    const startDate = addBusinessDays(item.start_date, workdayDelta);
+    const endDate = addBusinessDays(item.end_date, workdayDelta);
+    const changeType = endDate > item.baseline_end_date ? 'delay' : endDate < item.baseline_end_date ? 'early' : 'none';
+    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ start_date: startDate, end_date: endDate, change_type: changeType, change_reason: changeType === 'none' ? '' : item.change_reason }) });
     await onChange();
+    setItemModal({ item: { ...item, start_date: startDate, end_date: endDate, change_type: changeType, change_reason: changeType === 'none' ? '' : item.change_reason } });
     setSaving(false);
   };
 
@@ -227,6 +237,18 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
   const fullWidth = INFO_WIDTH + gridWidth + STATUS_WIDTH;
   const positionOf = (date: string) => index.get(isBusinessDay(date) ? date : nextBusinessDay(date, true)) ?? 0;
   const todayIndex = positionOf(today);
+  const dependencyPaths = project.items.flatMap((item, itemIndex) => item.dependency_ids.flatMap((dependencyId) => {
+    const dependencyIndex = project.items.findIndex((candidate) => candidate.id === dependencyId);
+    const dependencyForecast = project.forecast.itemForecasts[dependencyId];
+    const itemForecast = project.forecast.itemForecasts[item.id];
+    if (dependencyIndex < 0 || !dependencyForecast || !itemForecast) return [];
+    const x1 = (positionOf(dependencyForecast.end) + 1) * DAY_WIDTH - 5;
+    const x2 = positionOf(itemForecast.start) * DAY_WIDTH + 4;
+    const y1 = dependencyIndex * 74 + 37;
+    const y2 = itemIndex * 74 + 37;
+    const elbow = Math.max(x1, x2) + 12;
+    return [{ id: `${dependencyId}-${item.id}`, path: `M ${x1} ${y1} H ${elbow} V ${y2} H ${x2}`, conflict: itemForecast.conflict }];
+  }));
 
   return <div className={`timeline-scroll dense ${editMode ? 'edit-mode' : ''}`}><div className="timeline dense-timeline" style={{ width: fullWidth }}>
     <div className="timeline-head dense-head" style={{ gridTemplateColumns: `${INFO_WIDTH}px ${gridWidth}px ${STATUS_WIDTH}px` }}>
@@ -235,24 +257,38 @@ function Timeline({ project, onEdit, onToggleDone, onMove, saving, editMode }: {
       <div>Status</div>
     </div>
     {isBusinessDay(today) ? <div className="today-line dense-today" style={{ left: INFO_WIDTH + todayIndex * DAY_WIDTH + DAY_WIDTH / 2 }}><span>Heute</span></div> : null}
+    <svg className="dependency-lines" aria-hidden="true" style={{ left: INFO_WIDTH, top: 64, width: gridWidth, height: project.items.length * 74 }}>
+      <defs><marker id="dependency-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,0 L0,6 L6,3 z" /></marker></defs>
+      {dependencyPaths.map((connection) => <path key={connection.id} d={connection.path} className={connection.conflict ? 'conflict' : ''} markerEnd="url(#dependency-arrow)" />)}
+    </svg>
     {project.items.map((item) => {
       const forecast = project.forecast.itemForecasts[item.id];
       if (!forecast) return null;
       const dependencies = item.dependency_ids.map((id) => project.items.find((candidate) => candidate.id === id)?.title).filter((value): value is string => Boolean(value));
       const plannedStart = positionOf(item.start_date);
       const plannedEnd = positionOf(item.end_date);
+      const baselineStart = positionOf(item.baseline_start_date || item.start_date);
+      const baselineEnd = positionOf(item.baseline_end_date || item.end_date);
       const actualStart = positionOf(item.type === 'delivery' ? forecast.end : forecast.start);
       const baseEnd = positionOf(forecast.base_end);
       const actualEnd = positionOf(forecast.end);
       const baseWidth = Math.max(DAY_WIDTH, (baseEnd - actualStart + 1) * DAY_WIDTH);
       const extensionWidth = Math.max(0, (actualEnd - baseEnd) * DAY_WIDTH);
+      const hasBaselineChange = item.baseline_start_date !== item.start_date || item.baseline_end_date !== item.end_date;
+      const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : '';
       const dragStart = (event: React.DragEvent) => { drag.current = { itemId: item.id, x: event.clientX }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(item.id)); };
       const dragEnd = (event: React.DragEvent) => { if (!drag.current || drag.current.itemId !== item.id) return; const delta = Math.round((event.clientX - drag.current.x) / DAY_WIDTH); drag.current = null; if (delta) void onMove(item, delta); };
       return <div className={`timeline-row dense-row ${item.status === 'done' ? 'is-done' : ''} ${forecast.conflict ? 'has-conflict' : ''}`} style={{ gridTemplateColumns: `${INFO_WIDTH}px ${gridWidth}px ${STATUS_WIDTH}px` }} key={item.id}>
-        <button className="task-info dense-info" onClick={() => onEdit(item)}><span className={item.type}><ItemIcon type={item.type} /></span><p><strong>{item.title}</strong><small>{dependencies.length ? `Nach: ${dependencies.join(', ')}` : item.partner || (item.type === 'delivery' ? 'Lieferant offen' : 'Frei einplanbar')}</small>{forecast.conflict ? <em><CircleAlert /> Erst ab {formatDate(forecast.required_start)} möglich</em> : forecast.shifted && item.schedule_mode === 'auto' ? <em className="auto"><Link2 /> Automatisch ab {formatDate(forecast.start)}</em> : null}</p></button>
+        <button className="task-info dense-info" onClick={() => onEdit(item)}><span className={item.type}><ItemIcon type={item.type} /></span><p><strong>{item.title}</strong><small>{dependencies.length ? `Nach: ${dependencies.join(', ')}` : item.partner || (item.type === 'delivery' ? 'Lieferant offen' : 'Frei einplanbar')}</small>{forecast.conflict ? <em><CircleAlert /> Erst ab {formatDate(forecast.required_start)} möglich</em> : forecast.pulled_forward ? <em className="pulled"><ArrowLeft /> Nachgezogen auf {formatDate(forecast.start)}</em> : forecast.shifted && item.schedule_mode === 'auto' ? <em className="auto"><Link2 /> Automatisch ab {formatDate(forecast.start)}</em> : null}</p>{item.change_type !== 'none' ? <i className={`deviation-badge ${item.change_type}`} title={deviationTitle}><AlertTriangle /></i> : null}</button>
         <div className="track dense-track" style={{ backgroundSize: `${DAY_WIDTH}px 100%` }}>
-          {forecast.shifted && item.type === 'work' ? <i className="planned-ghost" title={`Ursprünglich ${formatDate(item.start_date)}–${formatDate(item.end_date)}`} style={{ left: plannedStart * DAY_WIDTH + 4, width: Math.max(DAY_WIDTH - 8, (plannedEnd - plannedStart + 1) * DAY_WIDTH - 8) }} /> : null}
-          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''}`} title={`${formatDate(item.type === 'delivery' ? forecast.end : forecast.start, true)}${item.type === 'work' ? ` bis ${formatDate(forecast.end, true)}` : ''}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
+          {item.type === 'delivery' ? <>
+            <i className="delivery-lead-line" title={`Bestellt am ${formatDate(item.start_date, true)} · erwartet am ${formatDate(forecast.end, true)}`} style={{ left: plannedStart * DAY_WIDTH + DAY_WIDTH / 2, width: Math.max(2, (actualStart - plannedStart) * DAY_WIDTH) }} />
+            <i className="delivery-order-dot" style={{ left: plannedStart * DAY_WIDTH + DAY_WIDTH / 2 - 3 }} />
+            {hasBaselineChange ? <i className="baseline-delivery-marker" title={`Ursprünglich erwartet: ${formatDate(item.baseline_end_date, true)}`} style={{ left: baselineEnd * DAY_WIDTH + DAY_WIDTH / 2 }} /> : null}
+            {hasBaselineChange ? <i className={`delivery-deviation-line ${actualStart > baselineEnd ? 'delay' : 'early'}`} title={deviationTitle} style={{ left: Math.min(actualStart, baselineEnd) * DAY_WIDTH + DAY_WIDTH / 2, width: Math.abs(actualStart - baselineEnd) * DAY_WIDTH }} /> : null}
+          </> : null}
+          {(forecast.shifted || hasBaselineChange) && item.type === 'work' ? <i className="planned-ghost" title={`Basisplan ${formatDate(item.baseline_start_date)}–${formatDate(item.baseline_end_date)}`} style={{ left: baselineStart * DAY_WIDTH + 4, width: Math.max(DAY_WIDTH - 8, (baselineEnd - baselineStart + 1) * DAY_WIDTH - 8) }} /> : null}
+          <div draggable={editMode} onDragStart={dragStart} onDragEnd={dragEnd} onClick={() => !editMode && onEdit(item)} className={`task-bar dense-bar ${item.type} ${forecast.conflict ? 'conflict' : ''} ${editMode ? 'movable' : ''} ${item.change_type}`} title={`${formatDate(item.type === 'delivery' ? forecast.end : forecast.start, true)}${item.type === 'work' ? ` bis ${formatDate(forecast.end, true)}` : ''}${deviationTitle ? ` · ${deviationTitle}` : ''}`} style={{ left: actualStart * DAY_WIDTH + 4, width: item.type === 'delivery' ? DAY_WIDTH - 8 : baseWidth - 4 }}>
             {editMode ? <GripVertical /> : <ItemIcon type={item.type} />}<span>{item.type === 'delivery' ? formatDate(forecast.end) : `${formatDate(forecast.start)} – ${formatDate(forecast.base_end)}`}</span>
           </div>
           {extensionWidth ? <button className="extension-bar" onClick={() => onEdit(item)} title={`${item.extension_days} zusätzliche Arbeitstage: ${item.extension_reason || 'ohne Begründung'}`} style={{ left: (baseEnd + 1) * DAY_WIDTH, width: extensionWidth }}><Pause /><span>+{item.extension_days} AT</span></button> : null}
@@ -271,7 +307,7 @@ function WorkCalendar({ project, onEdit }: { project: Project; onEdit: (item: Pl
     <div className="calendar-weekdays">{['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'].map((day) => <span key={day}>{day}</span>)}</div>
     {weeks.map((week) => <section className="calendar-week" key={week[0]}><div className="calendar-week-label">KW {isoWeek(week[0])}</div><div className="calendar-days">{week.map((date) => {
       const entries = project.items.filter((item) => { const forecast = project.forecast.itemForecasts[item.id]; return item.type === 'delivery' ? forecast.end === date : forecast.start <= date && forecast.end >= date; });
-      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; return <button onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.partner || statusLabels[item.status]}</small></span>{forecast.conflict ? <CircleAlert /> : null}</button>; })}</div></div>;
+      return <div className={`calendar-day ${date === today ? 'today' : ''}`} key={date}><header><strong>{formatDate(date)}</strong><small>{date === today ? 'Heute' : ''}</small></header><div className="calendar-entries">{entries.map((item) => { const forecast = project.forecast.itemForecasts[item.id]; const extension = item.type === 'work' && date > forecast.base_end; const deviationTitle = item.change_type !== 'none' ? `${changeLabels[item.change_type]}: ${item.change_reason || 'Grund noch nicht eingetragen'}` : ''; return <button title={deviationTitle} onClick={() => onEdit(item)} className={`calendar-entry ${item.type} ${extension ? 'extension' : ''} ${forecast.conflict ? 'conflict' : ''} ${item.change_type}`} key={item.id}><ItemIcon type={item.type} /><span><strong>{item.title}</strong><small>{extension ? `Verlängerung · ${item.extension_reason || `+${item.extension_days} AT`}` : item.change_type !== 'none' ? deviationTitle : item.partner || statusLabels[item.status]}</small></span>{forecast.conflict ? <CircleAlert /> : item.change_type !== 'none' ? <AlertTriangle /> : null}</button>; })}</div></div>;
     })}</div></section>)}
   </div>;
 }
@@ -326,13 +362,19 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
 }
 
 function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: Project; item?: PlanItem; defaultType?: ItemType; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, start_date: item.start_date, end_date: item.end_date, status: item.status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work' });
+  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, start_date: item.start_date, end_date: item.end_date, status: item.status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, baseline_start_date: item.baseline_start_date, baseline_end_date: item.baseline_end_date, actual_end_date: item.actual_end_date, pull_forward: item.pull_forward, change_type: item.change_type, change_reason: item.change_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work' });
+  const [resetBaseline, setResetBaseline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('');
     try {
-      await api(item ? `/api/items/${item.id}` : `/api/projects/${project.id}/items`, { method: item ? 'PATCH' : 'POST', body: JSON.stringify(draft) });
+      const comparisonDate = draft.actual_end_date || draft.end_date;
+      const inferredChange = comparisonDate > draft.baseline_end_date ? 'delay' : comparisonDate < draft.baseline_end_date ? 'early' : 'none';
+      const payload = resetBaseline
+        ? { ...draft, baseline_start_date: draft.start_date, baseline_end_date: draft.end_date, change_type: 'none', change_reason: '' }
+        : { ...draft, change_type: draft.change_type === 'none' ? inferredChange : draft.change_type };
+      await api(item ? `/api/items/${item.id}` : `/api/projects/${project.id}/items`, { method: item ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'Fehler beim Speichern'); setSaving(false); }
   };
@@ -349,12 +391,14 @@ function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: 
       <label><span>Status</span><select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value as Status })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       <label><span>{draft.type === 'delivery' ? 'Bestellt / gestartet' : 'Geplanter Start'}</span><input required type="date" value={draft.start_date} onChange={(e) => setDraft({ ...draft, start_date: e.target.value })} /></label>
       <label><span>{draft.type === 'delivery' ? 'Voraussichtliche Lieferung' : 'Geplantes Ende'}</span><input required type="date" min={draft.start_date} value={draft.end_date} onChange={(e) => setDraft({ ...draft, end_date: e.target.value })} /><small>{draft.type === 'work' ? `${duration} Arbeitstage · Wochenende wird übersprungen` : formatWeekday(draft.end_date)}</small></label>
+      {draft.status === 'done' ? <label className="wide"><span>{draft.type === 'delivery' ? 'Tatsächlich eingetroffen am' : 'Tatsächlich fertig am'}</span><input type="date" value={draft.actual_end_date} onChange={(e) => setDraft({ ...draft, actual_end_date: e.target.value })} /><small>Ein früheres Datum kann abhängige Arbeiten freigeben.</small></label> : null}
       <fieldset className="wide dependencies"><legend>Kann erst starten, wenn …</legend>{project.items.filter((candidate) => candidate.id !== item?.id).map((candidate) => <label key={candidate.id}><input type="checkbox" checked={draft.dependency_ids.includes(candidate.id)} onChange={(e) => setDraft({ ...draft, dependency_ids: e.target.checked ? [...draft.dependency_ids, candidate.id] : draft.dependency_ids.filter((id) => id !== candidate.id) })} /><span className={candidate.type}><ItemIcon type={candidate.type} /></span>{candidate.title}</label>)}{project.items.filter((candidate) => candidate.id !== item?.id).length === 0 ? <small>Noch keine anderen Einträge vorhanden.</small> : null}</fieldset>
       {draft.type === 'work' ? <>
-        <label className="wide"><span>Abhängigkeiten behandeln</span><select value={draft.schedule_mode} onChange={(e) => setDraft({ ...draft, schedule_mode: e.target.value as 'auto' | 'fixed' })}><option value="auto">Automatisch danach einreihen</option><option value="fixed">Meinen Termin festhalten und bei Konflikt warnen</option></select><small>{draft.schedule_mode === 'auto' ? 'Verschiebt sich eine Voraussetzung, rückt diese Arbeit automatisch nach.' : 'Der eingetragene Start bleibt stehen. Ist er unmöglich, erscheint eine rote Warnung.'}</small></label>
+        <label className="wide"><span>Abhängigkeiten behandeln</span><select value={draft.schedule_mode === 'fixed' ? 'fixed' : draft.pull_forward ? 'pull' : 'auto'} onChange={(e) => setDraft({ ...draft, schedule_mode: e.target.value === 'fixed' ? 'fixed' : 'auto', pull_forward: e.target.value === 'pull' ? 1 : 0 })}><option value="auto">Verzögerungen nachschieben, früheren Plan stehen lassen</option><option value="pull">Immer direkt anschließen – auch nach vorne aufrücken</option><option value="fixed">Meinen Termin festhalten und bei Konflikt warnen</option></select><small>{draft.schedule_mode === 'fixed' ? 'Der eingetragene Start bleibt stehen. Ist er unmöglich, erscheint eine rote Warnung.' : draft.pull_forward ? 'Wird eine Voraussetzung früher fertig, rückt diese Arbeit automatisch nach vorne.' : 'Verspätungen wirken sich aus. Frei gewordene Zeit bleibt bewusst als Puffer erhalten.'}</small></label>
         <label><span>Verlängerung</span><input type="number" min="0" max="260" value={draft.extension_days} onChange={(e) => setDraft({ ...draft, extension_days: Math.max(0, Number(e.target.value) || 0) })} /><small>zusätzliche Arbeitstage</small></label>
         <label><span>Grund der Verlängerung</span><input value={draft.extension_reason} onChange={(e) => setDraft({ ...draft, extension_reason: e.target.value })} placeholder="z. B. 3 Tage krank" /></label>
       </> : null}
+      <fieldset className="wide deviation-fields"><legend>Abweichung vom ursprünglichen Plan</legend><div className="baseline-summary"><span>Basis: {formatDate(draft.baseline_start_date)} – {formatDate(draft.baseline_end_date)}</span><label><input type="checkbox" checked={resetBaseline} onChange={(e) => setResetBaseline(e.target.checked)} /> Aktuelle Termine als neue Basis übernehmen</label></div><div className="deviation-inputs"><label><span>Markierung</span><select value={draft.change_type} onChange={(e) => setDraft({ ...draft, change_type: e.target.value as PlanItem['change_type'] })}>{Object.entries(changeLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Grund / kurze Notiz</span><input value={draft.change_reason} onChange={(e) => setDraft({ ...draft, change_reason: e.target.value })} placeholder="z. B. Lieferant: Fräsmaschine defekt, +1 Woche" /></label></div><small>Die Markierung erscheint im Zeitstrahl; der Grund ist beim Darüberfahren sichtbar.</small></fieldset>
       <label className="wide"><span>Notiz</span><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Termin bestätigt? Besonderheit? Grund für die Verschiebung?" /></label>
       {error ? <p className="form-error wide">{error}</p> : null}
       <div className="form-actions wide">{item ? <button type="button" className="delete" onClick={() => void remove()}><Trash2 /> Löschen</button> : null}<span /><button type="button" className="secondary" onClick={onClose}>Abbrechen</button><button className="primary" disabled={saving}>{saving ? 'Speichert …' : 'Speichern'}</button></div>

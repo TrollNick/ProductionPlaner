@@ -34,6 +34,12 @@ db.exec(`
     schedule_mode TEXT NOT NULL DEFAULT 'auto' CHECK(schedule_mode IN ('auto', 'fixed')),
     extension_days INTEGER NOT NULL DEFAULT 0,
     extension_reason TEXT NOT NULL DEFAULT '',
+    baseline_start_date TEXT NOT NULL DEFAULT '',
+    baseline_end_date TEXT NOT NULL DEFAULT '',
+    actual_end_date TEXT NOT NULL DEFAULT '',
+    pull_forward INTEGER NOT NULL DEFAULT 0,
+    change_type TEXT NOT NULL DEFAULT 'none',
+    change_reason TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     sort_order INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -52,6 +58,12 @@ const itemColumns = new Set((db.prepare('PRAGMA table_info(items)').all() as { n
 if (!itemColumns.has('schedule_mode')) db.exec("ALTER TABLE items ADD COLUMN schedule_mode TEXT NOT NULL DEFAULT 'auto'");
 if (!itemColumns.has('extension_days')) db.exec('ALTER TABLE items ADD COLUMN extension_days INTEGER NOT NULL DEFAULT 0');
 if (!itemColumns.has('extension_reason')) db.exec("ALTER TABLE items ADD COLUMN extension_reason TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('baseline_start_date')) db.exec("ALTER TABLE items ADD COLUMN baseline_start_date TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('baseline_end_date')) db.exec("ALTER TABLE items ADD COLUMN baseline_end_date TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('actual_end_date')) db.exec("ALTER TABLE items ADD COLUMN actual_end_date TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('pull_forward')) db.exec('ALTER TABLE items ADD COLUMN pull_forward INTEGER NOT NULL DEFAULT 0');
+if (!itemColumns.has('change_type')) db.exec("ALTER TABLE items ADD COLUMN change_type TEXT NOT NULL DEFAULT 'none'");
+if (!itemColumns.has('change_reason')) db.exec("ALTER TABLE items ADD COLUMN change_reason TEXT NOT NULL DEFAULT ''");
 
 const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get() as { count: number };
 if (projectCount.count === 0 && process.env.SEED_DEMO !== 'false') {
@@ -83,3 +95,6 @@ if (projectCount.count === 0 && process.env.SEED_DEMO !== 'false') {
   });
   seed();
 }
+
+db.prepare("UPDATE items SET baseline_start_date = start_date WHERE baseline_start_date = ''").run();
+db.prepare("UPDATE items SET baseline_end_date = end_date WHERE baseline_end_date = ''").run();

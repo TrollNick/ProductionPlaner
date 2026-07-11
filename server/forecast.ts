@@ -7,6 +7,8 @@ export type PlanItem = {
   dependency_ids: number[];
   schedule_mode: 'auto' | 'fixed';
   extension_days: number;
+  actual_end_date: string;
+  pull_forward: number;
 };
 
 type ItemForecast = {
@@ -16,6 +18,7 @@ type ItemForecast = {
   required_start: string;
   shifted: boolean;
   conflict: boolean;
+  pulled_forward: boolean;
 };
 
 const DAY = 86_400_000;
@@ -65,31 +68,48 @@ export function calculateForecast(items: PlanItem[]) {
     const cached = cache.get(item.id);
     if (cached) return cached;
     if (visiting.has(item.id)) {
-      return { start: item.start_date, end: item.end_date, base_end: item.end_date, required_start: item.start_date, shifted: false, conflict: true };
+      return { start: item.start_date, end: item.end_date, base_end: item.end_date, required_start: item.start_date, shifted: false, conflict: true, pulled_forward: false };
     }
     visiting.add(item.id);
 
-    let requiredStart = item.start_date;
+    let dependencyReady = '';
     for (const dependencyId of item.dependency_ids) {
       const dependency = byId.get(dependencyId);
       if (!dependency) continue;
       const candidate = nextBusinessDay(calculate(dependency).end);
-      if (candidate > requiredStart) requiredStart = candidate;
+      if (candidate > dependencyReady) dependencyReady = candidate;
     }
 
+    const plannedStart = nextBusinessDay(item.start_date, true);
+    const requiredStart = dependencyReady || plannedStart;
+
     let result: ItemForecast;
-    if (item.type === 'delivery' || item.status === 'done') {
+    if (item.type === 'delivery') {
+      const deliveryEnd = item.status === 'done' && item.actual_end_date ? item.actual_end_date : item.end_date;
       result = {
         start: item.start_date,
-        end: item.end_date,
-        base_end: item.end_date,
+        end: deliveryEnd,
+        base_end: deliveryEnd,
         required_start: requiredStart,
-        shifted: false,
+        shifted: deliveryEnd !== item.end_date,
         conflict: false,
+        pulled_forward: deliveryEnd < item.end_date,
+      };
+    } else if (item.status === 'done') {
+      const actualEnd = item.actual_end_date || item.end_date;
+      result = {
+        start: plannedStart,
+        end: actualEnd,
+        base_end: actualEnd,
+        required_start: requiredStart,
+        shifted: actualEnd !== item.end_date,
+        conflict: false,
+        pulled_forward: actualEnd < item.end_date,
       };
     } else {
-      const plannedStart = nextBusinessDay(item.start_date, true);
-      const autoStart = requiredStart > plannedStart ? requiredStart : plannedStart;
+      const autoStart = dependencyReady
+        ? (item.pull_forward ? dependencyReady : (dependencyReady > plannedStart ? dependencyReady : plannedStart))
+        : plannedStart;
       const start = item.schedule_mode === 'fixed' ? plannedStart : autoStart;
       const workDays = countBusinessDays(item.start_date, item.end_date);
       const baseEnd = addBusinessDays(start, workDays - 1);
@@ -101,6 +121,7 @@ export function calculateForecast(items: PlanItem[]) {
         required_start: requiredStart,
         shifted: start !== item.start_date || end !== item.end_date,
         conflict: item.schedule_mode === 'fixed' && requiredStart > start,
+        pulled_forward: start < plannedStart,
       };
     }
 

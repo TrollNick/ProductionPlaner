@@ -13,6 +13,12 @@ export type PlanItem = {
   schedule_mode: 'auto' | 'fixed';
   extension_days: number;
   extension_reason: string;
+  baseline_start_date: string;
+  baseline_end_date: string;
+  actual_end_date: string;
+  pull_forward: number;
+  change_type: 'none' | 'delay' | 'early' | 'pause' | 'info';
+  change_reason: string;
   notes: string;
   sort_order: number;
   dependency_ids: number[];
@@ -37,6 +43,7 @@ export type Project = {
       required_start: string;
       shifted: boolean;
       conflict: boolean;
+      pulled_forward: boolean;
     }>;
   };
 };

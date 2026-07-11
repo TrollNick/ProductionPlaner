@@ -10,6 +10,11 @@ Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
 - Lieferungen und Arbeiten im dichten Tagesraster mit Datum und Kalenderwoche
 - deutsche Arbeitswoche von Montag bis Freitag; Wochenenden zählen nicht zur Dauer
 - Abhängigkeiten reihen Arbeiten automatisch ein oder warnen bei bewusst fixierten Terminen
+- sichtbare Verbindungslinien zeigen, welche Lieferung oder Arbeit wovon abhängt
+- Lieferungen zeigen die Zeitspanne von der Bestellung bis zum erwarteten Eingang
+- ursprünglicher Plan, aktueller Termin und tatsächlicher Abschluss bleiben getrennt
+- benannte Verspätungen, Unterbrechungen und frühere Fertigstellungen mit Hover-Hinweis
+- Folgearbeiten können bei früher Fertigstellung wahlweise nachrücken oder ihren Plantermin behalten
 - sichtbare Verlängerungen mit zusätzlichen Arbeitstagen und Begründung
 - Balken im freischaltbaren Bearbeitungsmodus verschieben
 - alternative Kalenderansicht auf derselben Datengrundlage
