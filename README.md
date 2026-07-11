@@ -7,9 +7,13 @@ Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
 ## Funktionen
 
 - gemeinsame Auftragsübersicht mit Ampelstatus
-- Lieferungen und grob geplante Arbeiten auf einer Zeitachse
+- Lieferungen und Arbeiten im dichten Tagesraster mit Datum und Kalenderwoche
+- deutsche Arbeitswoche von Montag bis Freitag; Wochenenden zählen nicht zur Dauer
+- Abhängigkeiten reihen Arbeiten automatisch ein oder warnen bei bewusst fixierten Terminen
+- sichtbare Verlängerungen mit zusätzlichen Arbeitstagen und Begründung
+- Balken im freischaltbaren Bearbeitungsmodus verschieben
+- alternative Kalenderansicht auf derselben Datengrundlage
 - manuell änderbare Termine, Zuständigkeiten und Notizen
-- einfache Abhängigkeiten zwischen Lieferungen und Arbeiten
 - Vorschau auf Terminverschiebungen und mögliche Fertigstellung
 - bestehende Aufträge als Ausgangspunkt kopieren
 - für PC, Tablet und Smartphone optimiert

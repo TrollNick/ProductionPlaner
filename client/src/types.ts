@@ -10,6 +10,9 @@ export type PlanItem = {
   start_date: string;
   end_date: string;
   status: Status;
+  schedule_mode: 'auto' | 'fixed';
+  extension_days: number;
+  extension_reason: string;
   notes: string;
   sort_order: number;
   dependency_ids: number[];
@@ -26,6 +29,14 @@ export type Project = {
   items: PlanItem[];
   forecast: {
     completion: string;
-    itemForecasts: Record<number, { start: string; end: string }>;
+    conflicts: number[];
+    itemForecasts: Record<number, {
+      start: string;
+      end: string;
+      base_end: string;
+      required_start: string;
+      shifted: boolean;
+      conflict: boolean;
+    }>;
   };
 };
