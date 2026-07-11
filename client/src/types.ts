@@ -7,6 +7,7 @@ export type PlanItem = {
   type: ItemType;
   title: string;
   partner: string;
+  icon_key: string;
   start_date: string;
   end_date: string;
   status: Status;

@@ -17,15 +17,17 @@ Kein ERP, keine Lagerverwaltung und keine Stundenbuchung.
 - Folgearbeiten können bei früher Fertigstellung wahlweise nachrücken oder ihren Plantermin behalten
 - sichtbare Verlängerungen mit zusätzlichen Arbeitstagen und Begründung
 - Balken im freischaltbaren Bearbeitungsmodus verschieben
-- alternative Kalenderansicht auf derselben Datengrundlage
+- alternative Kalenderansicht auf derselben Datengrundlage; Bestellzeitraum, erwarteter Liefertag und Arbeiten sind gemeinsam sichtbar
 - Abhängigkeitsketten und „Nach: …“-Hinweise auch in der Kalenderansicht
+- eigenes, erweiterbares Symbolset für Bestellungen, Spedition, Lieferanten, Montage, Elektrik, Fertigung und Prüfung
+- Projekte archivieren, reaktivieren oder nach Bestätigung endgültig löschen
 - Erledigt-Status springt bei einem zweiten Klick zum vorherigen Stand zurück
 - manuell änderbare Termine, Zuständigkeiten und Notizen
 - Vorschau auf Terminverschiebungen und mögliche Fertigstellung
 - bestehende Aufträge als Ausgangspunkt kopieren
 - für PC, Tablet und Smartphone optimiert
 - SQLite-Datenbank ohne separaten Datenbankserver
-- JSON-Import und -Export für Datentransfer und Tests
+- JSON-Import und -Export für Datentransfer und Tests; archivierte Projekte werden mitgesichert
 - drei komplexe Testszenarien direkt über „Testszenarien“ ladbar
 
 ## Testszenarien

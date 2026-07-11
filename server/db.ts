@@ -28,6 +28,7 @@ db.exec(`
     type TEXT NOT NULL CHECK(type IN ('delivery', 'work')),
     title TEXT NOT NULL,
     partner TEXT NOT NULL DEFAULT '',
+    icon_key TEXT NOT NULL DEFAULT '',
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'active', 'done')),
@@ -66,6 +67,7 @@ if (!itemColumns.has('pull_forward')) db.exec('ALTER TABLE items ADD COLUMN pull
 if (!itemColumns.has('change_type')) db.exec("ALTER TABLE items ADD COLUMN change_type TEXT NOT NULL DEFAULT 'none'");
 if (!itemColumns.has('change_reason')) db.exec("ALTER TABLE items ADD COLUMN change_reason TEXT NOT NULL DEFAULT ''");
 if (!itemColumns.has('previous_status')) db.exec("ALTER TABLE items ADD COLUMN previous_status TEXT NOT NULL DEFAULT 'open'");
+if (!itemColumns.has('icon_key')) db.exec("ALTER TABLE items ADD COLUMN icon_key TEXT NOT NULL DEFAULT ''");
 
 const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get() as { count: number };
 if (projectCount.count === 0 && process.env.SEED_DEMO !== 'false') {

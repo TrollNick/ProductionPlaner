@@ -12,6 +12,7 @@
         {
           "key": "fraesteile",
           "type": "delivery",
+          "icon_key": "supplier",
           "title": "Frästeile Achssatz",
           "partner": "Präzision Müller",
           "start_date": "2026-07-06",
@@ -27,6 +28,7 @@
         {
           "key": "antriebe",
           "type": "delivery",
+          "icon_key": "freight",
           "title": "Servoantriebe",
           "partner": "DriveTech",
           "start_date": "2026-07-06",
@@ -37,6 +39,7 @@
         {
           "key": "kabelbaum",
           "type": "work",
+          "icon_key": "cable",
           "title": "Kabelbaum vorfertigen",
           "partner": "Lena",
           "start_date": "2026-07-13",
@@ -53,6 +56,7 @@
         {
           "key": "achse",
           "type": "work",
+          "icon_key": "assembly",
           "title": "Achssatz montieren",
           "partner": "Jan",
           "start_date": "2026-07-20",
@@ -66,6 +70,7 @@
         {
           "key": "endmontage",
           "type": "work",
+          "icon_key": "inspection",
           "title": "Endmontage und Abnahme",
           "partner": "Team",
           "start_date": "2026-07-27",
@@ -87,6 +92,7 @@
         {
           "key": "aufnahme",
           "type": "work",
+          "icon_key": "inspection",
           "title": "Bestandsaufnahme beim Kunden",
           "partner": "Nico",
           "start_date": "2026-07-06",
@@ -101,6 +107,7 @@
         {
           "key": "umrichter",
           "type": "delivery",
+          "icon_key": "delivery-box",
           "title": "Ersatzumrichter",
           "partner": "Antriebstechnik West",
           "start_date": "2026-07-06",
@@ -115,6 +122,7 @@
         {
           "key": "vorbereitung",
           "type": "work",
+          "icon_key": "machining",
           "title": "Umbau in Werkstatt vorbereiten",
           "partner": "Lena",
           "start_date": "2026-07-13",
@@ -128,6 +136,7 @@
         {
           "key": "kundeneinsatz",
           "type": "work",
+          "icon_key": "assembly",
           "title": "Umbau beim Kunden",
           "partner": "Nico & Jan",
           "start_date": "2026-07-20",
@@ -150,6 +159,7 @@
         {
           "key": "sensorik",
           "type": "delivery",
+          "icon_key": "supplier",
           "title": "Kundenspezifische Sensorik",
           "partner": "Sensorik Nord",
           "start_date": "2026-07-06",
@@ -164,6 +174,7 @@
         {
           "key": "schaltschrank",
           "type": "work",
+          "icon_key": "cable",
           "title": "Schaltschrank vorbereiten",
           "partner": "Lena",
           "start_date": "2026-07-13",
@@ -180,6 +191,7 @@
         {
           "key": "systemtest",
           "type": "work",
+          "icon_key": "inspection",
           "title": "Systemtest mit Sensorik",
           "partner": "Jan",
           "start_date": "2026-07-20",
@@ -193,6 +205,7 @@
         {
           "key": "freigabe",
           "type": "work",
+          "icon_key": "inspection",
           "title": "Kundenfreigabe und Dokumentation",
           "partner": "Team",
           "start_date": "2026-07-23",
