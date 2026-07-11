@@ -18,6 +18,7 @@ export type PlanItem = {
   baseline_start_date: string;
   baseline_end_date: string;
   actual_end_date: string;
+  previous_end_date: string;
   pull_forward: number;
   change_type: 'none' | 'delay' | 'early' | 'pause' | 'info';
   change_reason: string;

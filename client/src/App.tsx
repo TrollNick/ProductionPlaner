@@ -11,7 +11,8 @@ import type { ItemType, PlanItem, Project, Status } from './types';
 import { TASK_ICON_OPTIONS, TaskIcon } from './TaskIcon';
 
 const DAY = 86_400_000;
-const today = new Date().toISOString().slice(0, 10);
+const berlinDateParts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map((part) => [part.type, part.value]));
+const today = `${berlinDateParts.year}-${berlinDateParts.month}-${berlinDateParts.day}`;
 const colors = ['#e8a83e', '#6ca6a1', '#d7795f', '#778cba', '#87a767'];
 const statusLabels: Record<Status, string> = { open: 'Offen', active: 'Läuft', done: 'Erledigt' };
 const changeLabels: Record<PlanItem['change_type'], string> = { none: 'Keine Abweichung', delay: 'Verspätung', early: 'Früher', pause: 'Unterbrechung', info: 'Hinweis' };
@@ -48,7 +49,7 @@ type ItemDraft = Omit<PlanItem, 'id' | 'project_id' | 'sort_order'>;
 const emptyItem = (date = today): ItemDraft => {
   const start = nextBusinessDay(date, true);
   const end = addBusinessDays(start, 4);
-  return { type: 'work', title: '', partner: '', icon_key: 'assembly', start_date: start, end_date: end, status: 'open', previous_status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', baseline_start_date: start, baseline_end_date: end, actual_end_date: '', pull_forward: 0, change_type: 'none', change_reason: '', notes: '', dependency_ids: [] };
+  return { type: 'work', title: '', partner: '', icon_key: 'assembly', start_date: start, end_date: end, status: 'open', previous_status: 'open', schedule_mode: 'auto', extension_days: 0, extension_reason: '', baseline_start_date: start, baseline_end_date: end, actual_end_date: '', previous_end_date: '', pull_forward: 0, change_type: 'none', change_reason: '', notes: '', dependency_ids: [] };
 };
 
 export function App() {
@@ -202,11 +203,12 @@ function ProjectDetail({ project, onBack, onChange }: { project: Project; onBack
 
   const toggleDone = async (item: PlanItem) => {
     setSaving(true);
-    const done = item.status !== 'done';
-    const actualDate = item.type === 'work' && !isBusinessDay(today) ? addBusinessDays(today, -1) : today;
-    await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: done ? 'done' : item.previous_status || 'open', previous_status: done ? item.status : item.previous_status, actual_end_date: done ? actualDate : '' }) });
-    await onChange();
-    setSaving(false);
+    try {
+      await api(`/api/items/${item.id}`, { method: 'PATCH', body: JSON.stringify({ status: item.status === 'done' ? item.previous_status || 'open' : 'done' }) });
+      await onChange();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const moveItem = async (item: PlanItem, workdayDelta: number) => {
@@ -533,7 +535,7 @@ function EditProjectModal({ project, onClose, onSaved, onRemoved }: { project: P
 }
 
 function ItemModal({ project, item, defaultType, onClose, onSaved }: { project: Project; item?: PlanItem; defaultType?: ItemType; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, icon_key: item.icon_key, start_date: item.start_date, end_date: item.end_date, status: item.status, previous_status: item.previous_status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, baseline_start_date: item.baseline_start_date, baseline_end_date: item.baseline_end_date, actual_end_date: item.actual_end_date, pull_forward: item.pull_forward, change_type: item.change_type, change_reason: item.change_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work', icon_key: defaultType === 'delivery' ? 'delivery-box' : 'assembly' });
+  const [draft, setDraft] = useState<ItemDraft>(() => item ? { type: item.type, title: item.title, partner: item.partner, icon_key: item.icon_key, start_date: item.start_date, end_date: item.end_date, status: item.status, previous_status: item.previous_status, schedule_mode: item.schedule_mode, extension_days: item.extension_days, extension_reason: item.extension_reason, baseline_start_date: item.baseline_start_date, baseline_end_date: item.baseline_end_date, actual_end_date: item.actual_end_date, previous_end_date: item.previous_end_date, pull_forward: item.pull_forward, change_type: item.change_type, change_reason: item.change_reason, notes: item.notes, dependency_ids: item.dependency_ids } : { ...emptyItem(), type: defaultType || 'work', icon_key: defaultType === 'delivery' ? 'delivery-box' : 'assembly' });
   const [resetBaseline, setResetBaseline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');

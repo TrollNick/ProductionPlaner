@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from './db.js';
 import { calculateForecast, type PlanItem } from './forecast.js';
+import { applyStatusTransition } from './item-status.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -61,13 +62,17 @@ app.post('/api/import', (req, res) => {
       const keyMap = new Map<string, number>();
       project.items.forEach((item: Row, index: number) => {
         if (!item.title || !['delivery', 'work'].includes(String(item.type)) || !item.start_date || !item.end_date) return;
-        const result = db.prepare(`INSERT INTO items (project_id, type, title, partner, icon_key, start_date, end_date, status, previous_status, schedule_mode, extension_days, extension_reason, baseline_start_date, baseline_end_date, actual_end_date, pull_forward, change_type, change_reason, notes, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          projectId, item.type, item.title, item.partner || '', item.icon_key || '', item.start_date, item.end_date,
-          item.status || 'open', item.previous_status || 'open', item.schedule_mode || 'auto',
+        const status = item.status || 'open';
+        const actualEnd = status === 'done' ? item.actual_end_date || item.end_date : item.actual_end_date || '';
+        const storedEnd = status === 'done' ? actualEnd : item.end_date;
+        const previousEnd = status === 'done' ? item.previous_end_date || item.end_date : item.previous_end_date || '';
+        const result = db.prepare(`INSERT INTO items (project_id, type, title, partner, icon_key, start_date, end_date, status, previous_status, schedule_mode, extension_days, extension_reason, baseline_start_date, baseline_end_date, actual_end_date, previous_end_date, pull_forward, change_type, change_reason, notes, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          projectId, item.type, item.title, item.partner || '', item.icon_key || '', item.start_date, storedEnd,
+          status, item.previous_status || 'open', item.schedule_mode || 'auto',
           Math.max(0, Number(item.extension_days) || 0), item.extension_reason || '',
           item.baseline_start_date || item.start_date, item.baseline_end_date || item.end_date,
-          item.actual_end_date || '', Number(Boolean(item.pull_forward)), item.change_type || 'none',
+          actualEnd, previousEnd, Number(Boolean(item.pull_forward)), item.change_type || 'none',
           item.change_reason || '', item.notes || '', index + 1,
         );
         keyMap.set(String(item.key || index), Number(result.lastInsertRowid));
@@ -138,10 +143,11 @@ app.delete('/api/projects/:id', (req, res) => {
 app.post('/api/projects/:id/items', (req, res) => {
   const { type, title, partner = '', icon_key = '', start_date, end_date, status = 'open', previous_status = 'open', schedule_mode = 'auto', extension_days = 0, extension_reason = '', actual_end_date = '', pull_forward = 0, change_type = 'none', change_reason = '', notes = '', dependency_ids = [] } = req.body;
   if (!['delivery', 'work'].includes(type) || !title || !start_date || !end_date) return res.status(400).json({ error: 'Unvollständiger Eintrag.' });
+  const initial = applyStatusTransition({ status: 'open', previous_status: 'open', end_date, baseline_end_date: end_date, actual_end_date: '', previous_end_date: '' }, { status, previous_status, actual_end_date });
   const create = db.transaction(() => {
     const max = db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS value FROM items WHERE project_id = ?').get(req.params.id) as { value: number };
-    const result = db.prepare(`INSERT INTO items (project_id, type, title, partner, icon_key, start_date, end_date, status, previous_status, schedule_mode, extension_days, extension_reason, baseline_start_date, baseline_end_date, actual_end_date, pull_forward, change_type, change_reason, notes, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(req.params.id, type, title, partner, icon_key, start_date, end_date, status, previous_status, schedule_mode, Math.max(0, Number(extension_days) || 0), extension_reason, start_date, end_date, actual_end_date, Number(Boolean(pull_forward)), change_type, change_reason, notes, max.value + 1);
+    const result = db.prepare(`INSERT INTO items (project_id, type, title, partner, icon_key, start_date, end_date, status, previous_status, schedule_mode, extension_days, extension_reason, baseline_start_date, baseline_end_date, actual_end_date, previous_end_date, pull_forward, change_type, change_reason, notes, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(req.params.id, type, title, partner, icon_key, start_date, initial.end_date, initial.status, initial.previous_status || 'open', schedule_mode, Math.max(0, Number(extension_days) || 0), extension_reason, start_date, end_date, initial.actual_end_date || '', initial.previous_end_date || '', Number(Boolean(pull_forward)), change_type, change_reason, notes, max.value + 1);
     const id = Number(result.lastInsertRowid);
     for (const dependencyId of dependency_ids) db.prepare('INSERT OR IGNORE INTO dependencies VALUES (?, ?)').run(id, dependencyId);
     return id;
@@ -154,11 +160,10 @@ app.patch('/api/items/:id', (req, res) => {
   const current = db.prepare('SELECT * FROM items WHERE id = ?').get(req.params.id) as Row | undefined;
   if (!current) return res.status(404).json({ error: 'Eintrag nicht gefunden.' });
   const { dependency_ids, ...changes } = req.body;
-  const next = { ...current, ...changes };
-  if (changes.status === 'done' && current.status !== 'done' && changes.previous_status === undefined) next.previous_status = current.status;
+  const next = applyStatusTransition(current as Parameters<typeof applyStatusTransition>[0], changes);
   const update = db.transaction(() => {
-    db.prepare(`UPDATE items SET type = ?, title = ?, partner = ?, icon_key = ?, start_date = ?, end_date = ?, status = ?, previous_status = ?, schedule_mode = ?, extension_days = ?, extension_reason = ?, baseline_start_date = ?, baseline_end_date = ?, actual_end_date = ?, pull_forward = ?, change_type = ?, change_reason = ?, notes = ?, sort_order = ? WHERE id = ?`)
-      .run(next.type, next.title, next.partner, next.icon_key || '', next.start_date, next.end_date, next.status, next.previous_status || 'open', next.schedule_mode, Math.max(0, Number(next.extension_days) || 0), next.extension_reason, next.baseline_start_date || next.start_date, next.baseline_end_date || next.end_date, next.actual_end_date || '', Number(Boolean(next.pull_forward)), next.change_type || 'none', next.change_reason || '', next.notes, next.sort_order, req.params.id);
+    db.prepare(`UPDATE items SET type = ?, title = ?, partner = ?, icon_key = ?, start_date = ?, end_date = ?, status = ?, previous_status = ?, schedule_mode = ?, extension_days = ?, extension_reason = ?, baseline_start_date = ?, baseline_end_date = ?, actual_end_date = ?, previous_end_date = ?, pull_forward = ?, change_type = ?, change_reason = ?, notes = ?, sort_order = ? WHERE id = ?`)
+      .run(next.type, next.title, next.partner, next.icon_key || '', next.start_date, next.end_date, next.status, next.previous_status || 'open', next.schedule_mode, Math.max(0, Number(next.extension_days) || 0), next.extension_reason, next.baseline_start_date || next.start_date, next.baseline_end_date || next.end_date, next.actual_end_date || '', next.previous_end_date || '', Number(Boolean(next.pull_forward)), next.change_type || 'none', next.change_reason || '', next.notes, next.sort_order, req.params.id);
     if (Array.isArray(dependency_ids)) {
       db.prepare('DELETE FROM dependencies WHERE item_id = ?').run(req.params.id);
       for (const dependencyId of dependency_ids) {

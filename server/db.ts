@@ -39,6 +39,7 @@ db.exec(`
     baseline_start_date TEXT NOT NULL DEFAULT '',
     baseline_end_date TEXT NOT NULL DEFAULT '',
     actual_end_date TEXT NOT NULL DEFAULT '',
+    previous_end_date TEXT NOT NULL DEFAULT '',
     pull_forward INTEGER NOT NULL DEFAULT 0,
     change_type TEXT NOT NULL DEFAULT 'none',
     change_reason TEXT NOT NULL DEFAULT '',
@@ -63,6 +64,7 @@ if (!itemColumns.has('extension_reason')) db.exec("ALTER TABLE items ADD COLUMN 
 if (!itemColumns.has('baseline_start_date')) db.exec("ALTER TABLE items ADD COLUMN baseline_start_date TEXT NOT NULL DEFAULT ''");
 if (!itemColumns.has('baseline_end_date')) db.exec("ALTER TABLE items ADD COLUMN baseline_end_date TEXT NOT NULL DEFAULT ''");
 if (!itemColumns.has('actual_end_date')) db.exec("ALTER TABLE items ADD COLUMN actual_end_date TEXT NOT NULL DEFAULT ''");
+if (!itemColumns.has('previous_end_date')) db.exec("ALTER TABLE items ADD COLUMN previous_end_date TEXT NOT NULL DEFAULT ''");
 if (!itemColumns.has('pull_forward')) db.exec('ALTER TABLE items ADD COLUMN pull_forward INTEGER NOT NULL DEFAULT 0');
 if (!itemColumns.has('change_type')) db.exec("ALTER TABLE items ADD COLUMN change_type TEXT NOT NULL DEFAULT 'none'");
 if (!itemColumns.has('change_reason')) db.exec("ALTER TABLE items ADD COLUMN change_reason TEXT NOT NULL DEFAULT ''");
@@ -102,3 +104,5 @@ if (projectCount.count === 0 && process.env.SEED_DEMO !== 'false') {
 
 db.prepare("UPDATE items SET baseline_start_date = start_date WHERE baseline_start_date = ''").run();
 db.prepare("UPDATE items SET baseline_end_date = end_date WHERE baseline_end_date = ''").run();
+db.prepare("UPDATE items SET previous_end_date = end_date WHERE status = 'done' AND previous_end_date = ''").run();
+db.prepare("UPDATE items SET end_date = actual_end_date WHERE status = 'done' AND actual_end_date <> ''").run();
